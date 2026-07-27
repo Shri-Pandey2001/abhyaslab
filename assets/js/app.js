@@ -428,14 +428,6 @@ function paintTasks(t, r) {
       }
     });
 
-    /* students type their own code — pasting, copying and dragging text in are off */
-    ["paste", "copy", "cut", "drop", "contextmenu"].forEach(evt =>
-      ta.addEventListener(evt, (e) => {
-        e.preventDefault();
-        if (evt === "paste") toast("Type the code yourself — pasting is off here.");
-      })
-    );
-
     draw();
   });
 
@@ -715,6 +707,26 @@ $("#askForm").addEventListener("submit", async (e) => {
   }
   $("#askSend").disabled = false;
 });
+
+/* ======================================================================
+   TYPE IT YOURSELF
+   One capture-phase listener on the document, so it applies to every code
+   editor on the page — including ones created later when a topic is opened.
+   Set ALLOW_PASTE to true if you ever want to switch this off.
+   ====================================================================== */
+const ALLOW_PASTE = false;
+
+if (!ALLOW_PASTE) {
+  ["paste", "copy", "cut", "drop", "dragover", "contextmenu"].forEach(evt =>
+    document.addEventListener(evt, (e) => {
+      const el = e.target;
+      if (!el || !el.closest || !el.closest(".editor")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (evt === "paste") toast("Type the code yourself — pasting is off here.");
+    }, true)
+  );
+}
 
 /* ======================================================================
    BOOT
