@@ -9,7 +9,7 @@ const CONFIG = {
         It looks like: https://script.google.com/macros/s/AKfy...../exec
         Leave it as "" and the site still works — progress is just kept in the
         browser and nothing is logged to your Google Sheet. */
-  endpoint: "",
+  endpoint: "https://script.google.com/macros/s/AKfycbyroQlsWtADAjzbQHNX2arEcFYA1fcSuoHfm2exEVib7zJoTsmlI2dWNedV7rT0ALk3/exec",
 
   /* 2. Turn the AI doubt panel on or off.
         Needs the endpoint above AND a GEMINI_API_KEY set inside Apps Script. */
