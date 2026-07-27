@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AbhyasLab · Concept To Code</title>
+<meta name="description" content="Read the concept, check yourself, run real Python in the browser. No installs.">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<!-- ============ WELCOME / REGISTRATION ============ -->
+<section id="gate" class="gate" hidden>
+  <div class="gate__stamp" aria-hidden="true"></div>
+
+  <div class="gate__inner">
+    <header class="gate__brand">
+      <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M20 2 L38 20 L20 38 L2 20 Z" class="mark__d"/>
+        <path d="M20 9 L31 20 L20 31 L9 20 Z" class="mark__i"/>
+        <path d="M20 15.5 L24.5 20 L20 24.5 L15.5 20 Z" class="mark__c"/>
+      </svg>
+      <div>
+        <h1 class="wordmark">AbhyasLab</h1>
+        <p class="tagline">Concept To Code</p>
+      </div>
+    </header>
+
+    <!-- Signature: a Python shell that runs the promise -->
+    <div class="shell" role="img" aria-label="A Python shell printing: Concept To Code. No installs. Just run it.">
+      <div class="shell__bar"><span></span><span></span><span></span><em>Python 3 · in your browser</em></div>
+      <pre class="shell__body"><code id="shellText"></code><span class="caret" id="caret"></span></pre>
+    </div>
+
+    <p class="gate__lede">Read a concept. Check yourself. Write the code and watch it run — right here, nothing to install.</p>
+
+    <form class="reg" id="regForm" autocomplete="on">
+      <div class="reg__row">
+        <label class="field">
+          <span>Roll number</span>
+          <input id="regId" name="rollNumber" required placeholder="2026_CS_01" maxlength="30">
+        </label>
+        <label class="field">
+          <span>Full name</span>
+          <input id="regName" name="fullName" required placeholder="Your name as per college records" maxlength="60">
+        </label>
+      </div>
+      <button class="btn btn--go" type="submit">Start Unit 1</button>
+      <p class="reg__note" id="regNote">Your roll number keeps your progress. Use the same one every time.</p>
+    </form>
+  </div>
+</section>
+
+<!-- ============ APP ============ -->
+<div id="app" class="app" hidden>
+
+  <header class="topbar">
+    <button class="topbar__menu" id="menuBtn" aria-label="Show topics" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <a class="topbar__brand" href="#" id="homeLink">
+      <svg class="mark mark--sm" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M20 2 L38 20 L20 38 L2 20 Z" class="mark__d"/>
+        <path d="M20 9 L31 20 L20 31 L9 20 Z" class="mark__i"/>
+        <path d="M20 15.5 L24.5 20 L20 24.5 L15.5 20 Z" class="mark__c"/>
+      </svg>
+      <span class="topbar__name">AbhyasLab<em>Concept To Code</em></span>
+    </a>
+    <div class="topbar__right">
+      <div class="who">
+        <strong id="whoName">—</strong>
+        <span id="whoId">—</span>
+      </div>
+      <button class="btn btn--ghost btn--sm" id="signOut">Switch student</button>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- Signature rail: block-print stamps carry topic state -->
+    <nav class="rail" id="rail" aria-label="Topics">
+      <div class="rail__unit">
+        <p class="rail__eyebrow">Unit 1</p>
+        <h2 class="rail__title" id="railUnitTitle">Foundations of Python</h2>
+        <div class="rail__meter"><i id="railMeterFill"></i></div>
+        <p class="rail__count" id="railCount">0 of 3 complete</p>
+      </div>
+      <ol class="rail__list" id="railList"></ol>
+      <div class="rail__foot">
+        <p>Topics open one after another. Clear the quiz and the code tasks to unlock the next one.</p>
+      </div>
+    </nav>
+    <div class="rail__scrim" id="railScrim" hidden></div>
+
+    <main class="main" id="main" tabindex="-1"></main>
+  </div>
+
+  <!-- ============ AI DOUBT PANEL ============ -->
+  <button class="ask" id="askBtn" aria-controls="askPanel" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
+    <span>Ask a doubt</span>
+  </button>
+
+  <aside class="askpanel" id="askPanel" hidden aria-label="Ask a doubt">
+    <header class="askpanel__head">
+      <div>
+        <strong>Ask a doubt</strong>
+        <span id="askContext">Unit 1</span>
+      </div>
+      <button class="askpanel__close" id="askClose" aria-label="Close">&times;</button>
+    </header>
+    <div class="askpanel__log" id="askLog" aria-live="polite"></div>
+    <form class="askpanel__form" id="askForm">
+      <textarea id="askInput" rows="1" placeholder="What does NameError mean?" maxlength="1000"></textarea>
+      <button class="btn btn--go btn--sm" type="submit" id="askSend">Send</button>
+    </form>
+    <p class="askpanel__note">Answers explain the idea and nudge you — they won't hand over finished task code.</p>
+  </aside>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/content.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
