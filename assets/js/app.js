@@ -427,6 +427,15 @@ function paintTasks(t, r) {
         $(`[data-run="${sec.dataset.task}"]`, sec).click();
       }
     });
+
+    /* students type their own code — pasting, copying and dragging text in are off */
+    ["paste", "copy", "cut", "drop", "contextmenu"].forEach(evt =>
+      ta.addEventListener(evt, (e) => {
+        e.preventDefault();
+        if (evt === "paste") toast("Type the code yourself — pasting is off here.");
+      })
+    );
+
     draw();
   });
 
