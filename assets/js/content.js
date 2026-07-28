@@ -682,6 +682,135 @@ x = x + 1    # count this attempt  &lt;- says why</code></pre>
     ]
   }
 
-  ]
+  ],
+
+  /* ============================ UNIT TEST ============================
+     20 questions, 3 marks each, 60 marks total. Unlocks once every topic
+     in this unit is complete. Feedback is held back until submission. */
+  test: {
+    title: "Unit 1 Test",
+    marksPerQuestion: 3,
+    durationMinutes: 30,
+    questions: [
+      { q: "Who created Python?",
+        options: ["Dennis Ritchie", "Guido van Rossum", "James Gosling", "Bjarne Stroustrup"], answer: 1 },
+
+      { q: "In which year was Python first released to the public?",
+        options: ["1989", "1991", "1994", "2000"], answer: 1 },
+
+      { q: "The name 'Python' comes from:",
+        options: ["The snake species", "Monty Python's Flying Circus",
+                  "An acronym for Programmable Notation", "The creator's pet"], answer: 1 },
+
+      { q: "Official support for Python 2 ended on:",
+        options: ["1 January 2018", "1 January 2020", "31 December 2015", "1 January 2022"], answer: 1 },
+
+      { q: "Python is best classified as:",
+        options: ["A low-level compiled language", "A high-level interpreted language",
+                  "A markup language", "An assembly language"], answer: 1 },
+
+      { q: "Which of the following is NOT an advantage of Python?",
+        options: ["Free and open source", "Runs on all major operating systems",
+                  "Fastest execution speed of any language", "Very large standard library"], answer: 2 },
+
+      { q: "Typing  import this  into Python displays:",
+        options: ["The version number", "The Zen of Python",
+                  "A list of installed modules", "The installation path"], answer: 1 },
+
+      { q: "IDLE stands for:",
+        options: ["Integrated Development and Learning Environment",
+                  "Interactive Debugger for Learning Errors",
+                  "Internal Development Language Editor",
+                  "Integrated Data Logic Environment"], answer: 0 },
+
+      { q: "The correct extension for a Python source file is:",
+        options: [".pt", ".pyt", ".py", ".pyn"], answer: 2 },
+
+      { q: "A terminal replies 'python is not recognized'. The most likely reason is:",
+        options: ["Python was never installed", "Python's folder is missing from PATH",
+                  "The .py file is corrupt", "IDLE is already running"], answer: 1 },
+
+      { q: "Which key runs the current file in IDLE's editor?",
+        options: ["F1", "F5", "F9", "Ctrl + R"], answer: 1 },
+
+      { q: "Which line correctly prints Hello, World! ?",
+        options: ['Print("Hello, World!")', 'print(Hello, World!)',
+                  'print("Hello, World!")', 'PRINT("Hello, World!")'], answer: 2 },
+
+      { q: "Running  Print(\"Hi\")  raises:",
+        options: ["SyntaxError", "NameError", "TypeError", "ValueError"], answer: 1 },
+
+      { q: "Running  print(\"Hello)  raises:",
+        options: ["NameError", "SyntaxError", "IndexError", "Nothing — it prints Hello"], answer: 1 },
+
+      { q: "What does  print(\"A\", \"B\")  display?",
+        options: ["AB", "A B", "A,B", "A-B"], answer: 1 },
+
+      { q: "What does  print(\"A\", \"B\", sep=\"-\")  display?",
+        options: ["A B", "A-B", "AB-", "A - B"], answer: 1 },
+
+      { q: "Which of these is a valid Python string?",
+        options: ["Only 'text' with single quotes", "Only \"text\" with double quotes",
+                  "Single, double and triple quotes are all valid",
+                  "Strings do not need quotes if they have no spaces"], answer: 2 },
+
+      { q: "You type  7 * 6  at the >>> prompt and press Enter. What happens?",
+        options: ["Nothing is displayed", "42 is displayed immediately",
+                  "SyntaxError", "It waits for a print statement"], answer: 1 },
+
+      { q: "Which symbol starts a single-line comment in Python?",
+        options: ["//", "#", "/*", "--"], answer: 1 },
+
+      { q: "How is a multi-line comment normally written in Python?",
+        options: ["/* ... */", "A triple-quoted string that is not assigned to anything",
+                  "<!-- ... -->", "Python does not allow multi-line notes at all"], answer: 1 }
+    ]
+  },
+
+  /* ========================== UNIT PROJECT ==========================
+     Unlocks once the test is passed. Submitting the link completes the
+     unit and opens the next one. */
+  project: {
+    title: "Unit 1 Project — Digital Student ID Card",
+    summary: "One Python program that uses everything from Unit 1. Push it to GitHub or Drive and submit the link.",
+    brief: `
+      <h4>What to build</h4>
+      <p>A single Python file, <code>student_id_card.py</code>, that prints a tidy student ID
+      card to the screen. No input, no calculations — this unit is about writing clean,
+      correct, well-commented output.</p>
+
+      <h4>What it must contain</h4>
+      <ol>
+        <li>A <strong>triple-quoted block</strong> at the very top holding your name, roll number and the purpose of the file.</li>
+        <li>At least <strong>four single-line comments</strong> starting with <code>#</code>, each explaining <em>why</em> a section exists — not repeating what it does.</li>
+        <li>A printed card with a <strong>border</strong> made of repeated characters, and your name, roll number, branch, college and email inside it.</li>
+        <li>At least one <code>print()</code> using <strong>double quotes</strong>, one using <strong>single quotes</strong>, and one using a <strong>triple-quoted string</strong>.</li>
+        <li>At least one <code>print()</code> that passes <strong>several items separated by commas</strong>, and one that uses <code>sep=</code>.</li>
+        <li>Twelve or more lines of output, and it must run without a single error on Python 3.</li>
+      </ol>
+
+      <h4>Roughly what it should look like</h4>
+      <pre><code>==================================
+        SHRI KHUSHAL DAS UNIVERSITY
+==================================
+ Name    : Ananya Verma
+ Roll No : 2026_CS_02
+ Branch  : Computer Science
+==================================</code></pre>
+
+      <h4>How you are marked</h4>
+      <ul>
+        <li>It runs with no errors — the first thing checked</li>
+        <li>Every requirement above is present</li>
+        <li>Comments explain reasons, not the obvious</li>
+        <li>The output is neatly aligned and readable</li>
+      </ul>
+
+      <h4>How to submit</h4>
+      <p>Push the file to a public GitHub repository, or upload it to Google Drive and set
+      sharing to <em>Anyone with the link</em>. Paste that link below. Check it opens in a
+      private window first — a link nobody else can open counts as not submitted.</p>
+    `
+  }
 }
 ];
