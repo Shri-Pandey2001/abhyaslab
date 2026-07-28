@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/style.css?v=3">
+<link rel="stylesheet" href="assets/css/style.css?v=4">
 </head>
 <body>
 
@@ -36,6 +36,21 @@
       <pre class="shell__body"><code id="shellText"></code><span class="caret" id="caret"></span></pre>
     </div>
 
+    <svg class="snake" viewBox="0 0 1200 90" aria-hidden="true">
+      <g class="snake__g">
+        <path class="snake__body" fill="none" stroke-linecap="round"
+              d="M170 45 C140 22 116 68 86 45 S32 22 0 45">
+          <animate attributeName="d" dur="1.5s" repeatCount="indefinite"
+                   values="M170 45 C140 22 116 68 86 45 S32 22 0 45;
+                           M170 45 C140 68 116 22 86 45 S32 68 0 45;
+                           M170 45 C140 22 116 68 86 45 S32 22 0 45"/>
+        </path>
+        <path class="snake__tongue" d="M186 45 h13 m0 0 l6 -4 m-6 4 l6 4" fill="none" stroke-linecap="round"/>
+        <ellipse class="snake__head" cx="174" cy="45" rx="13" ry="10"/>
+        <circle class="snake__eye" cx="178" cy="41.5" r="2.1"/>
+      </g>
+    </svg>
+
     <p class="gate__lede">Read a concept. Check yourself. Write the code and watch it run — right here, nothing to install.</p>
 
     <form class="reg" id="regForm" autocomplete="on">
@@ -52,6 +67,12 @@
       <button class="btn btn--go" type="submit">Start Unit 1</button>
       <p class="reg__note" id="regNote">Your roll number keeps your progress. Use the same one every time.</p>
     </form>
+
+    <footer class="credit">
+      <span>Created by <strong>Shridhar Pandey</strong></span>
+      <a href="https://github.com/shridhar-pandey" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.instagram.com/shridhar_siddheshwar_pandey?igsh=N3pxYzNjYWl3OWlw" target="_blank" rel="noopener">Instagram</a>
+    </footer>
   </div>
 </section>
 
@@ -75,7 +96,6 @@
         <strong id="whoName">—</strong>
         <span id="whoId">—</span>
       </div>
-      <button class="btn btn--ghost btn--sm" id="signOut">Switch student</button>
     </div>
   </header>
 
@@ -124,9 +144,9 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script src="assets/js/config.js?v=3"></script>
-<script src="assets/js/content.js?v=3"></script>
-<script src="assets/js/api.js?v=3"></script>
-<script src="assets/js/app.js?v=3"></script>
+<script src="assets/js/config.js?v=4"></script>
+<script src="assets/js/content.js?v=4"></script>
+<script src="assets/js/api.js?v=4"></script>
+<script src="assets/js/app.js?v=4"></script>
 </body>
 </html>
