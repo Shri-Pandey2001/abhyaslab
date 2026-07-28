@@ -18,23 +18,57 @@ const tidy = (s) => String(s == null ? "" : s)
   .split("\n").map(l => l.replace(/\s+$/, "")).join("\n")
   .replace(/\n+$/, "").replace(/^\n+/, "");
 
+const pad = (n) => String(n).padStart(2, "0");
+
 let toastTimer;
 function toast(msg) {
   const el = $("#toast");
   el.textContent = msg;
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 3600);
+}
+
+function credit() {
+  return `<footer class="credit">
+    <span>Created by <strong>${esc(CONFIG.author)}</strong></span>
+    <a href="${esc(CONFIG.authorGithub)}" target="_blank" rel="noopener">GitHub</a>
+    <a href="${esc(CONFIG.authorInstagram)}" target="_blank" rel="noopener">Instagram</a>
+  </footer>`;
+}
+
+function guardNote(what) {
+  if (!CONFIG.focusGuard) return "";
+  return `<div class="guard">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L22 20 H2 Z M11 9h2v6h-2z m0 8h2v2h-2z"/></svg>
+    <span>Stay on this tab. If you switch away, minimise, or open another window,
+    ${what}. <b>Finish here first.</b></span>
+  </div>`;
 }
 
 /* ---------------------------------------------------------------- content */
-const TOPICS = [];
-COURSE.forEach(u => u.topics.forEach(t =>
-  TOPICS.push(Object.assign({ unit: u.unit, unitTitle: u.unitTitle }, t))
-));
+/* Every screen a student can reach, in the order they unlock. */
+const STEPS = [];
+COURSE.forEach((u, ui) => {
+  u.topics.forEach((t, ti) => STEPS.push({
+    kind: "topic", unitIdx: ui, unit: u.unit, unitTitle: u.unitTitle,
+    no: ti + 1, id: t.id, title: t.title, summary: t.summary, data: t
+  }));
+  if (u.test) STEPS.push({
+    kind: "test", unitIdx: ui, unit: u.unit, unitTitle: u.unitTitle,
+    id: "test:" + u.unit, title: u.test.title || (u.unit + " Test"),
+    summary: `${u.test.questions.length} questions · ${u.test.questions.length * u.test.marksPerQuestion} marks · ${u.test.durationMinutes} minutes`,
+    data: u.test
+  });
+  if (u.project) STEPS.push({
+    kind: "project", unitIdx: ui, unit: u.unit, unitTitle: u.unitTitle,
+    id: "proj:" + u.unit, title: u.project.title, summary: u.project.summary, data: u.project
+  });
+});
 
-const topicAt = (i) => TOPICS[i];
-const indexOfId = (id) => TOPICS.findIndex(t => t.id === id);
+const stepAt   = (i) => STEPS[i];
+const indexOf_ = (id) => STEPS.findIndex(s => s.id === id);
+const totalMarks = (test) => test.questions.length * test.marksPerQuestion;
 
 /* ------------------------------------------------------------------ state */
 const KEY_STUDENT = "abhyaslab.student";
@@ -42,7 +76,7 @@ const keyProgress = (id) => "abhyaslab.progress." + id;
 
 let student  = null;
 let progress = {};
-let view     = { name: "dashboard", topic: 0 };
+let view     = { name: "dashboard", step: 0 };
 const chat   = [];
 
 function loadStudent() {
@@ -57,19 +91,67 @@ function saveProgress() {
   try { localStorage.setItem(keyProgress(student.id), JSON.stringify(progress)); } catch {}
 }
 function rec(id) {
-  if (!progress[id]) progress[id] = { mcqScore: 0, mcqTotal: 0, mcqPassed: false, tasks: {}, done: false };
+  if (!progress[id]) progress[id] = { done: false, tasks: {}, mcqScore: 0, mcqTotal: 0, mcqPassed: false };
+  if (!progress[id].tasks) progress[id].tasks = {};
   return progress[id];
 }
 
 function isUnlocked(i) {
   if (!CONFIG.lockingEnabled || i === 0) return true;
-  const prev = progress[TOPICS[i - 1].id];
+  const prev = progress[STEPS[i - 1].id];
   return !!(prev && prev.done);
 }
-const doneCount = () => TOPICS.filter(t => progress[t.id] && progress[t.id].done).length;
+const doneCount = () => STEPS.filter(s => progress[s.id] && progress[s.id].done).length;
 
 /* ======================================================================
-   WELCOME SCREEN — the shell types out the promise
+   FOCUS GUARD
+   Leave the tab mid-topic and that topic resets. Leave mid-test and the
+   test is submitted where it stands.
+   ====================================================================== */
+const guard = { armed: false, step: -1, allowLeave: false, pending: null };
+
+function armGuard(i, on) { guard.armed = !!on; guard.step = i; }
+
+/* opening a link in a new tab is not cheating */
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest('a[target="_blank"]');
+  if (!a) return;
+  guard.allowLeave = true;
+  setTimeout(() => { guard.allowLeave = false; }, 4000);   // one trip only
+}, true);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    if (guard.pending) {
+      const msg = guard.pending;
+      guard.pending = null;
+      render();
+      toast(msg);
+    }
+    return;
+  }
+  if (!CONFIG.focusGuard || !guard.armed) return;
+  if (guard.allowLeave) { guard.allowLeave = false; return; }
+
+  const s = stepAt(guard.step);
+  if (!s) return;
+
+  if (s.kind === "test" && exam.running) {
+    finishExam("You left the tab");
+    guard.pending = "You left the tab, so the test was submitted.";
+  } else if (s.kind === "topic") {
+    delete progress[s.id];
+    saveProgress();
+    API.logProgress(student, {
+      unit: s.unit, topic: s.title, mcqScore: "",
+      codeStatus: "Left the tab", progression: "Topic progress reset"
+    });
+    guard.pending = "You left the tab. This topic's progress was cleared.";
+  }
+});
+
+/* ======================================================================
+   WELCOME SCREEN
    ====================================================================== */
 const SCRIPT_LINES = [
   { t: '>>> ', cls: 'prompt', instant: true },
@@ -90,10 +172,11 @@ function typeShell() {
   if (!slow) {
     box.innerHTML = SCRIPT_LINES
       .map(p => p.cls ? `<span class="${p.cls}">${esc(p.t)}</span>` : esc(p.t)).join("");
+    const c = $("#caret"); if (c) c.style.display = "none";
     return;
   }
   (function step() {
-    if (li >= SCRIPT_LINES.length) { $("#caret").style.display = "none"; return; }
+    if (li >= SCRIPT_LINES.length) { const c = $("#caret"); if (c) c.style.display = "none"; return; }
     const part = SCRIPT_LINES[li];
     if (part.instant) {
       html += part.cls ? `<span class="${part.cls}">${esc(part.t)}</span>` : esc(part.t);
@@ -102,8 +185,7 @@ function typeShell() {
       return setTimeout(step, 260);
     }
     ci++;
-    const shown = part.t.slice(0, ci);
-    box.innerHTML = html + `<span class="str">${esc(shown)}</span>`;
+    box.innerHTML = html + `<span class="str">${esc(part.t.slice(0, ci))}</span>`;
     if (ci >= part.t.length) { html += `<span class="str">${esc(part.t)}</span>`; li++; ci = 0; return setTimeout(step, 240); }
     setTimeout(step, 42);
   })();
@@ -112,7 +194,7 @@ function typeShell() {
 /* ======================================================================
    REGISTRATION
    ====================================================================== */
-$("#regForm").addEventListener("submit", async (e) => {
+$("#regForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const id   = $("#regId").value.trim();
   const name = $("#regName").value.trim();
@@ -124,11 +206,11 @@ $("#regForm").addEventListener("submit", async (e) => {
   note.classList.remove("is-bad");
   note.innerHTML = '<span class="spin"></span> Setting up your workspace…';
 
-  student  = { id, name, since: new Date().toISOString() };
+  student = { id, name, since: new Date().toISOString() };
   localStorage.setItem(KEY_STUDENT, JSON.stringify(student));
   progress = loadProgress();
 
-  API.register(student);           // logged in the background; never blocks the student
+  API.register(student);          // logged in the background; never blocks the student
   startApp();
 });
 
@@ -142,41 +224,40 @@ function startApp() {
   go({ name: "dashboard" });
 }
 
-$("#signOut").addEventListener("click", () => {
-  if (!confirm("Switch student? Your progress stays saved on this device under your roll number.")) return;
-  localStorage.removeItem(KEY_STUDENT);
-  location.reload();
-});
-
 /* ======================================================================
    RAIL
    ====================================================================== */
+const KIND_LABEL = { topic: "Topic", test: "Test", project: "Project" };
+
 function paintRail() {
-  const list = $("#railList");
-  list.innerHTML = TOPICS.map((t, i) => {
-    const r = progress[t.id];
+  let lastUnit = null;
+  $("#railList").innerHTML = STEPS.map((s, i) => {
+    const r = progress[s.id];
     const done = r && r.done;
     const open = isUnlocked(i);
-    const cur  = view.name === "topic" && view.topic === i;
+    const cur  = view.name !== "dashboard" && view.step === i;
     const cls  = ["tnode", done ? "is-done" : (open ? "is-open" : "is-locked"), cur ? "is-current" : ""].join(" ");
-    const glyph = done ? "&#10003;" : (open ? String(i + 1) : "&#128274;");
-    return `<li class="${cls}">
+    const glyph = done ? "&#10003;" : (open ? (s.kind === "topic" ? s.no : (s.kind === "test" ? "T" : "P")) : "&#128274;");
+    const kicker = s.kind === "topic" ? `${esc(s.unit)} &middot; Topic ${s.no}` : `${esc(s.unit)} &middot; ${KIND_LABEL[s.kind]}`;
+    const divider = (lastUnit !== null && lastUnit !== s.unit) ? `<li class="rail__div">${esc(s.unit)}</li>` : "";
+    lastUnit = s.unit;
+    return `${divider}<li class="${cls}">
       <span class="tnode__stamp" aria-hidden="true"><span>${glyph}</span></span>
       <button class="tnode__btn" data-goto="${i}" ${open ? "" : "disabled"}>
-        <span class="tnode__k">${esc(t.unit)} &middot; Topic ${i + 1}</span>
-        <span class="tnode__t">${esc(t.title)}</span>
+        <span class="tnode__k">${kicker}</span>
+        <span class="tnode__t">${esc(s.title)}</span>
       </button>
     </li>`;
   }).join("");
 
   const n = doneCount();
-  $("#railMeterFill").style.width = (n / TOPICS.length * 100) + "%";
-  $("#railCount").textContent = `${n} of ${TOPICS.length} complete`;
+  $("#railMeterFill").style.width = (n / STEPS.length * 100) + "%";
+  $("#railCount").textContent = `${n} of ${STEPS.length} complete`;
 }
 
 $("#railList").addEventListener("click", (e) => {
   const b = e.target.closest("[data-goto]");
-  if (b) { go({ name: "topic", topic: +b.dataset.goto }); closeRail(); }
+  if (b) { go({ name: "step", step: +b.dataset.goto }); closeRail(); }
 });
 
 const openRail  = () => { $("#rail").classList.add("is-open"); $("#railScrim").hidden = false; $("#menuBtn").setAttribute("aria-expanded", "true"); };
@@ -189,61 +270,121 @@ $("#homeLink").addEventListener("click", (e) => { e.preventDefault(); go({ name:
    ROUTER
    ====================================================================== */
 function go(next) {
-  view = Object.assign({ topic: 0 }, next);
-  paintRail();
-  if (view.name === "dashboard") paintDashboard(); else paintTopic(view.topic);
+  if (exam.timerId) { clearInterval(exam.timerId); exam.timerId = null; }
+  if (view.name === "step" && stepAt(view.step) && stepAt(view.step).kind === "test") resetExam();
+  view = Object.assign({ step: 0 }, next);
+  render();
   $("#main").scrollTop = 0;
+  window.scrollTo(0, 0);
   $("#main").focus({ preventScroll: true });
-  $("#askContext").textContent = view.name === "topic" ? "Topic " + (view.topic + 1) : COURSE[0].unit;
 }
 
-/* ---------------------------------------------------------- dashboard */
+function render() {
+  paintRail();
+  if (view.name === "dashboard") { armGuard(-1, false); paintDashboard(); $("#askContext").textContent = "Overview"; return; }
+
+  const i = view.step, s = stepAt(i);
+  if (!s) return paintDashboard();
+  $("#askContext").textContent = s.kind === "topic" ? "Topic " + s.no : KIND_LABEL[s.kind];
+
+  if (s.kind === "topic")   { armGuard(i, true);  return paintTopic(i); }
+  if (s.kind === "test")    { armGuard(i, exam.running); return paintTest(i); }
+  if (s.kind === "project") { armGuard(i, false); return paintProject(i); }
+}
+
+/* ======================================================================
+   DASHBOARD
+   ====================================================================== */
 function paintDashboard() {
   const n = doneCount();
-  const nextIdx = TOPICS.findIndex((t, i) => isUnlocked(i) && !(progress[t.id] && progress[t.id].done));
-  const target  = nextIdx === -1 ? TOPICS.length - 1 : nextIdx;
-  const solved  = TOPICS.reduce((a, t) => a + (progress[t.id] ? Object.keys(progress[t.id].tasks).length : 0), 0);
+  const nextIdx = STEPS.findIndex((s, i) => isUnlocked(i) && !(progress[s.id] && progress[s.id].done));
+  const target  = nextIdx === -1 ? STEPS.length - 1 : nextIdx;
+  const first   = esc(student.name.split(" ")[0]);
+
+  const tasksPassed = STEPS.reduce((a, s) =>
+    a + (s.kind === "topic" && progress[s.id] ? Object.keys(progress[s.id].tasks || {}).length : 0), 0);
+  const testStep = STEPS.find(s => s.kind === "test");
+  const testRec  = testStep ? progress[testStep.id] : null;
 
   $("#main").innerHTML = `<div class="wrap">
     <section class="hero">
       <p class="hero__k">${esc(CONFIG.institution)} &middot; ${esc(CONFIG.courseName)}</p>
-      <h2 class="hero__t">${n === 0 ? "Welcome, " + esc(student.name.split(" ")[0]) + "." : "Keep going, " + esc(student.name.split(" ")[0]) + "."}</h2>
+      <h2 class="hero__t">${n === 0 ? "Welcome, " + first + "." : "Keep going, " + first + "."}</h2>
       <p class="hero__s">${n === 0
-        ? "Three topics stand between you and your first working Python programs. Read, answer, then write code that actually runs on this page."
-        : (n === TOPICS.length
-            ? "You've cleared every topic that's live right now. More are on the way."
-            : "You've cleared " + n + " of " + TOPICS.length + ". Next up: " + esc(TOPICS[target].title) + ".")}</p>
-      ${n < TOPICS.length ? `<button class="btn btn--go" data-goto="${target}">${n === 0 ? "Open Topic 1" : "Continue"}</button>` : ""}
+        ? "Read, answer, then write Python that runs on this page. Finish the topics, clear the unit test, submit the project."
+        : (n === STEPS.length
+            ? "Everything live right now is complete. More units are on the way."
+            : "You've cleared " + n + " of " + STEPS.length + " steps. Next up: " + esc(STEPS[target].title) + ".")}</p>
+      ${n < STEPS.length ? `<button class="btn btn--go" data-goto="${target}">${n === 0 ? "Start Topic 1" : "Continue"}</button>` : ""}
+      <svg class="snake" viewBox="0 0 1200 90" aria-hidden="true">
+        <g class="snake__g">
+          <path class="snake__body" fill="none" stroke-linecap="round"
+                d="M170 45 C140 22 116 68 86 45 S32 22 0 45">
+            <animate attributeName="d" dur="1.5s" repeatCount="indefinite"
+                     values="M170 45 C140 22 116 68 86 45 S32 22 0 45;
+                             M170 45 C140 68 116 22 86 45 S32 68 0 45;
+                             M170 45 C140 22 116 68 86 45 S32 22 0 45"/>
+          </path>
+          <path class="snake__tongue" d="M186 45 h13 m0 0 l6 -4 m-6 4 l6 4" fill="none" stroke-linecap="round"/>
+          <ellipse class="snake__head" cx="174" cy="45" rx="13" ry="10"/>
+          <circle class="snake__eye" cx="178" cy="41.5" r="2.1"/>
+        </g>
+      </svg>
     </section>
 
     <div class="stats">
-      <div class="stat"><b>${n}/${TOPICS.length}</b><span>Topics complete</span></div>
-      <div class="stat"><b>${solved}</b><span>Tasks passed</span></div>
+      <div class="stat"><b>${n}/${STEPS.length}</b><span>Steps complete</span></div>
+      <div class="stat"><b>${tasksPassed}</b><span>Code tasks passed</span></div>
+      <div class="stat"><b>${testRec && testRec.best != null ? testRec.best + "/" + testRec.total : "—"}</b><span>Unit test</span></div>
       <div class="stat stat--id"><b>${esc(student.id)}</b><span>Your roll number</span></div>
     </div>
 
-    <div class="step"><span class="step__n">All</span><h3 class="step__t">Topics in ${esc(COURSE[0].unit)}</h3></div>
-    <div class="cards">
-      ${TOPICS.map((t, i) => {
-        const open = isUnlocked(i), r = progress[t.id];
-        const state = r && r.done ? "Complete" : (open ? "Ready" : "Locked");
-        return `<button class="card" data-goto="${i}" ${open ? "" : "disabled"}>
-          <span class="card__k">Topic ${i + 1} &middot; ${state}</span>
-          <h4 class="card__t">${esc(t.title)}</h4>
-          <p class="card__s">${open ? esc(t.summary) : "Clear Topic " + i + " to open this."}</p>
-        </button>`;
-      }).join("")}
-    </div>
+    <div class="step"><span class="step__n">All</span><h3 class="step__t">Your progress</h3></div>
+    <div class="prog">${STEPS.map((s, i) => progressRow(s, i)).join("")}</div>
+
+    ${credit()}
   </div>`;
 
   $$("[data-goto]", $("#main")).forEach(b =>
-    b.addEventListener("click", () => go({ name: "topic", topic: +b.dataset.goto })));
+    b.addEventListener("click", () => go({ name: "step", step: +b.dataset.goto })));
 }
 
-/* ------------------------------------------------------------- topic */
+function progressRow(s, i) {
+  const r = progress[s.id];
+  const done = r && r.done;
+  const open = isUnlocked(i);
+  const glyph = done ? "&#10003;" : (open ? (s.kind === "topic" ? s.no : KIND_LABEL[s.kind][0]) : "&#128274;");
+
+  let score = "", sub = "";
+  if (s.kind === "topic") {
+    const tasks = r ? Object.keys(r.tasks || {}).length : 0;
+    sub = done ? "Complete" : (open ? "Ready to start" : "Locked");
+    if (r && r.mcqTotal) score = `<b>${r.mcqScore}/${r.mcqTotal}</b>quiz`;
+    if (s.data.tasks.length) score += `<span>${tasks}/${s.data.tasks.length} tasks</span>`;
+  } else if (s.kind === "test") {
+    sub = done ? "Passed" : (open ? "Ready — " + s.summary : "Finish every topic to unlock");
+    if (r && r.best != null) score = `<b>${r.best}/${r.total}</b>attempt ${r.attempts}`;
+  } else {
+    sub = done ? "Submitted" : (open ? "Ready to submit" : "Pass the unit test to unlock");
+    if (r && r.link) score = `<b>Sent</b>${new Date(r.at).toLocaleDateString()}`;
+  }
+
+  const cls = ["prow", done ? "is-done" : (open ? "is-open" : "")].join(" ");
+  return `<button class="${cls}" data-goto="${i}" ${open ? "" : "disabled"}>
+    <span class="prow__mark"><span>${glyph}</span></span>
+    <span class="prow__main">
+      <span class="prow__t">${esc(s.title)}</span>
+      <span class="prow__s">${esc(s.unit)} &middot; ${sub}</span>
+    </span>
+    <span class="prow__score">${score}</span>
+  </button>`;
+}
+
+/* ======================================================================
+   TOPIC
+   ====================================================================== */
 function paintTopic(i) {
-  const t = topicAt(i);
-  const r = rec(t.id);
+  const s = stepAt(i), t = s.data, r = rec(s.id);
 
   const nb = t.notebookLM
     ? `<a class="nblink" href="${esc(t.notebookLM)}" target="_blank" rel="noopener">
@@ -253,10 +394,12 @@ function paintTopic(i) {
 
   $("#main").innerHTML = `<div class="wrap">
     <header class="thead">
-      <p class="thead__k">${esc(t.unit)} &middot; Topic ${i + 1} of ${TOPICS.length}</p>
+      <p class="thead__k">${esc(s.unit)} &middot; Topic ${s.no}</p>
       <h2 class="thead__t">${esc(t.title)}</h2>
       <p class="thead__s">${esc(t.summary)}</p>
     </header>
+
+    ${guardNote("everything you've done in this topic is wiped and you start it again")}
 
     <div class="step"><span class="step__n">01</span><h3 class="step__t">Read the concept</h3></div>
     <article class="paper">${t.notes}${nb}</article>
@@ -274,17 +417,19 @@ function paintTopic(i) {
     </div><div id="tasks"></div>` : ""}
 
     <div class="finish" id="finish"></div>
+    ${credit()}
   </div>`;
 
-  paintQuiz(t, r);
-  paintTasks(t, r);
+  paintQuiz(s, r);
+  paintTasks(s, r);
   paintFinish(i);
 }
 
 /* -------------------------------------------------------------- quiz */
-function paintQuiz(t, r) {
+function paintQuiz(s, r) {
+  const t = s.data;
   const old = $("#quiz");
-  const box = old.cloneNode(false);      // fresh node = no stale click handlers
+  const box = old.cloneNode(false);          // fresh node = no stale click handlers
   old.replaceWith(box);
   const answered = {};
 
@@ -322,37 +467,35 @@ function paintQuiz(t, r) {
     why.innerHTML = (answered[qi] ? "<strong>Correct.</strong> " : "<strong>Not this one.</strong> ") + m.why;
     why.hidden = false;
 
-    if (Object.keys(answered).length === t.mcqs.length) settleQuiz(t, r, answered);
+    if (Object.keys(answered).length === t.mcqs.length) settleQuiz(s, r, answered);
   });
 
-  if (r.mcqTotal) {                        // already attempted earlier
-    showQuizBar(t, r.mcqScore, r.mcqTotal, r.mcqPassed, true);
-  }
+  if (r.mcqTotal) showQuizBar(s, r.mcqScore, r.mcqTotal, r.mcqPassed, true);
 }
 
-function settleQuiz(t, r, answered) {
+function settleQuiz(s, r, answered) {
+  const t = s.data;
   const score = Object.values(answered).filter(Boolean).length;
   const total = t.mcqs.length;
-  const pct   = Math.round(score / total * 100);
-  const pass  = pct >= CONFIG.mcqPassPercent;
+  const pass  = Math.round(score / total * 100) >= CONFIG.mcqPassPercent;
 
   if (score >= r.mcqScore) { r.mcqScore = score; r.mcqTotal = total; }
   if (pass) r.mcqPassed = true;
   saveProgress();
 
   API.logProgress(student, {
-    unit: t.unit, topic: t.title,
+    unit: s.unit, topic: t.title,
     mcqScore: score + "/" + total,
     codeStatus: "Quiz attempted",
     progression: pass ? "Quiz cleared" : "Quiz not cleared"
   });
 
-  showQuizBar(t, score, total, pass, false);
-  paintFinish(indexOfId(t.id));
+  showQuizBar(s, score, total, pass, false);
+  paintFinish(indexOf_(s.id));
   paintRail();
 }
 
-function showQuizBar(t, score, total, pass, previous) {
+function showQuizBar(s, score, total, pass, previous) {
   const bar = $("#quizbar");
   bar.hidden = false;
   bar.innerHTML = `
@@ -361,12 +504,13 @@ function showQuizBar(t, score, total, pass, previous) {
     <button class="btn btn--quiet btn--sm" id="retry">Try the quiz again</button>`;
   $("#retry").addEventListener("click", () => {
     $("#quizbar").hidden = true;
-    paintQuiz(t, rec(t.id));
+    paintQuiz(s, rec(s.id));
   });
 }
 
 /* ------------------------------------------------------------- tasks */
-function paintTasks(t, r) {
+function paintTasks(s, r) {
+  const t = s.data;
   const host = $("#tasks");
   if (!host) return;
 
@@ -397,10 +541,9 @@ function paintTasks(t, r) {
   }).join("");
 
   $$("[data-confirm]", host).forEach(cb => cb.addEventListener("change", () => {
-    const id = cb.dataset.confirm;
-    if (cb.checked) r.tasks[id] = true; else delete r.tasks[id];
+    if (cb.checked) r.tasks[cb.dataset.confirm] = true; else delete r.tasks[cb.dataset.confirm];
     saveProgress();
-    paintFinish(indexOfId(t.id));
+    paintFinish(indexOf_(s.id));
     paintRail();
   }));
 
@@ -417,9 +560,9 @@ function paintTasks(t, r) {
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Tab") {
         e.preventDefault();
-        const s = ta.selectionStart, en = ta.selectionEnd;
-        ta.value = ta.value.slice(0, s) + "    " + ta.value.slice(en);
-        ta.selectionStart = ta.selectionEnd = s + 4;
+        const a = ta.selectionStart, b = ta.selectionEnd;
+        ta.value = ta.value.slice(0, a) + "    " + ta.value.slice(b);
+        ta.selectionStart = ta.selectionEnd = a + 4;
         draw();
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -427,24 +570,24 @@ function paintTasks(t, r) {
         $(`[data-run="${sec.dataset.task}"]`, sec).click();
       }
     });
-
     draw();
   });
 
   host.addEventListener("click", async (e) => {
-    const runBtn = e.target.closest("[data-run]");
     const resBtn = e.target.closest("[data-reset]");
     if (resBtn) {
       const task = t.tasks.find(x => x.id === resBtn.dataset.reset);
       const sec  = resBtn.closest(".task");
-      $("[data-code]", sec).value = task.starter || "";
-      $("[data-code]", sec).dispatchEvent(new Event("input"));
+      const ta   = $("[data-code]", sec);
+      ta.value = task.starter || "";
+      ta.dispatchEvent(new Event("input"));
       $("[data-out]", sec).hidden = true;
       return;
     }
+    const runBtn = e.target.closest("[data-run]");
     if (!runBtn) return;
     const task = t.tasks.find(x => x.id === runBtn.dataset.run);
-    await runTask(t, r, task, runBtn.closest(".task"), runBtn);
+    await runTask(s, r, task, runBtn.closest(".task"), runBtn);
   });
 }
 
@@ -453,14 +596,14 @@ let pyPromise = null;
 function bootPython() {
   if (pyPromise) return pyPromise;
   pyPromise = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = CONFIG.pyodideUrl;
-    s.onload = async () => {
+    const el = document.createElement("script");
+    el.src = CONFIG.pyodideUrl;
+    el.onload = async () => {
       try { resolve(await loadPyodide({ indexURL: CONFIG.pyodideIndex })); }
       catch (err) { pyPromise = null; reject(err); }
     };
-    s.onerror = () => { pyPromise = null; reject(new Error("The Python engine could not be downloaded. Check your internet connection and run again.")); };
-    document.head.appendChild(s);
+    el.onerror = () => { pyPromise = null; reject(new Error("The Python engine could not be downloaded. Check your internet connection and run again.")); };
+    document.head.appendChild(el);
   });
   return pyPromise;
 }
@@ -468,8 +611,8 @@ function bootPython() {
 async function runPython(code) {
   const py = await bootPython();
   const out = [], err = [];
-  py.setStdout({ batched: (s) => out.push(s) });
-  py.setStderr({ batched: (s) => err.push(s) });
+  py.setStdout({ batched: (x) => out.push(x) });
+  py.setStderr({ batched: (x) => err.push(x) });
   try { py.setStdin({ stdin: () => window.prompt("Your program is asking for input:") || "" }); } catch {}
 
   let error = null, ns = null;
@@ -484,7 +627,6 @@ async function runPython(code) {
   return { stdout: out.join("\n"), stderr: err.join("\n"), error };
 }
 
-/* trim Pyodide's internal frames — students only need their own lines */
 function humanError(raw) {
   const lines = String(raw).split("\n").filter(l => !/pyodide|_pyodide|<exec>|importlib/i.test(l));
   return lines.join("\n").trim() || String(raw).trim();
@@ -525,7 +667,7 @@ function evaluate(task, source, stdout) {
   });
 }
 
-async function runTask(t, r, task, sec, btn) {
+async function runTask(s, r, task, sec, btn) {
   const code   = $("[data-code]", sec).value;
   const outBox = $("[data-out]", sec);
   const status = $("[data-status]", sec);
@@ -570,7 +712,7 @@ async function runTask(t, r, task, sec, btn) {
     if (!wasPassed) {
       toast("Task passed — nice.");
       API.logProgress(student, {
-        unit: t.unit, topic: t.title,
+        unit: s.unit, topic: s.title,
         mcqScore: r.mcqTotal ? r.mcqScore + "/" + r.mcqTotal : "",
         codeStatus: "Passed: " + task.title,
         progression: "Task cleared"
@@ -581,13 +723,13 @@ async function runTask(t, r, task, sec, btn) {
   }
 
   btn.disabled = false;
-  paintFinish(indexOfId(t.id));
+  paintFinish(indexOf_(s.id));
   paintRail();
 }
 
 /* ---------------------------------------------------------- completion */
 function paintFinish(i) {
-  const t = topicAt(i), r = rec(t.id);
+  const s = stepAt(i), t = s.data, r = rec(s.id);
   const tasksDone = t.tasks.every(x => r.tasks[x.id]);
   const complete  = r.mcqPassed && tasksDone;
   const box = $("#finish");
@@ -597,23 +739,23 @@ function paintFinish(i) {
     r.done = true;
     saveProgress();
     API.logProgress(student, {
-      unit: t.unit, topic: t.title,
+      unit: s.unit, topic: t.title,
       mcqScore: r.mcqScore + "/" + r.mcqTotal,
       codeStatus: "All tasks passed",
-      progression: i + 1 < TOPICS.length ? "Topic " + (i + 2) + " unlocked" : "Unit complete"
+      progression: i + 1 < STEPS.length ? STEPS[i + 1].title + " unlocked" : "Unit complete"
     });
     toast("Topic complete.");
   }
 
-  const last = i + 1 >= TOPICS.length;
+  const nextStep = STEPS[i + 1];
   box.className = "finish" + (complete ? " is-done" : "");
   box.innerHTML = complete
     ? `<div>
-         <h4 class="finish__t">Topic ${i + 1} cleared.</h4>
-         <p class="finish__s">${last ? "That's everything live in this unit. More topics are being added." : "Topic " + (i + 2) + " is now open."}</p>
+         <h4 class="finish__t">Topic ${s.no} cleared.</h4>
+         <p class="finish__s">${nextStep ? esc(nextStep.title) + " is now open." : "That's everything live in this unit."}</p>
        </div>
-       ${last ? '<button class="btn btn--quiet" data-home>Back to all topics</button>'
-              : `<button class="btn btn--go" data-next="${i + 1}">Open Topic ${i + 2}</button>`}`
+       ${nextStep ? `<button class="btn btn--go" data-next="${i + 1}">Open ${esc(KIND_LABEL[nextStep.kind])}</button>`
+                  : '<button class="btn btn--quiet" data-home>Back to your progress</button>'}`
     : `<div>
          <h4 class="finish__t">Still to do</h4>
          <p class="finish__s">${[
@@ -622,91 +764,315 @@ function paintFinish(i) {
            ].filter(Boolean).join(", ") || "nothing — you're done"}.</p>
        </div>`;
 
-  const nb = $("[data-next]", box); if (nb) nb.addEventListener("click", () => go({ name: "topic", topic: +nb.dataset.next }));
+  const nb = $("[data-next]", box); if (nb) nb.addEventListener("click", () => go({ name: "step", step: +nb.dataset.next }));
   const hb = $("[data-home]", box); if (hb) hb.addEventListener("click", () => go({ name: "dashboard" }));
 }
 
 /* ======================================================================
-   ASK A DOUBT
+   UNIT TEST
    ====================================================================== */
-const askPanel = $("#askPanel"), askLog = $("#askLog"), askInput = $("#askInput");
+const exam = { running: false, answers: {}, endsAt: 0, timerId: null, result: null };
 
-function bubble(role, text) {
-  const d = document.createElement("div");
-  d.className = "bub bub--" + role;
-  d.innerHTML = role === "ai" ? mdLite(text) : esc(text);
-  askLog.appendChild(d);
-  askLog.scrollTop = askLog.scrollHeight;
-  return d;
+function resetExam() {
+  exam.running = false; exam.answers = {}; exam.endsAt = 0; exam.result = null;
+  if (exam.timerId) { clearInterval(exam.timerId); exam.timerId = null; }
 }
 
-function mdLite(s) {
-  let h = esc(s);
-  h = h.replace(/```(?:\w+)?\n([\s\S]*?)```/g, (m, c) => `<pre><code>${c}</code></pre>`);
-  h = h.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-  h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  h = h.replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>");
-  return "<p>" + h + "</p>";
-}
+function paintTest(i) {
+  const s = stepAt(i), t = s.data, r = rec(s.id);
+  const total = totalMarks(t);
+  const need  = Math.ceil(total * CONFIG.testPassPercent / 100);
 
-function openAsk() {
-  askPanel.hidden = false;
-  $("#askBtn").hidden = true;
-  $("#askBtn").setAttribute("aria-expanded", "true");
-  if (!askLog.childElementCount) {
-    const where = view.name === "topic" ? topicAt(view.topic).title : "Unit 1";
-    bubble("sys", "Asking about " + where);
-    bubble("ai", "Ask me anything from this topic — a word you didn't follow, an error message you got, or why your output looks wrong. I'll explain it, but I won't type your task answers for you.");
-  }
-  askInput.focus();
-}
-function closeAsk() {
-  askPanel.hidden = true;
-  $("#askBtn").hidden = !CONFIG.aiEnabled;
-  $("#askBtn").setAttribute("aria-expanded", "false");
-}
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !askPanel.hidden) closeAsk(); });
+  /* 1. results screen, straight after submitting */
+  if (exam.result) return paintTestResult(i);
 
-$("#askBtn").addEventListener("click", openAsk);
-$("#askClose").addEventListener("click", closeAsk);
-askInput.addEventListener("input", () => { askInput.style.height = "auto"; askInput.style.height = Math.min(askInput.scrollHeight, 112) + "px"; });
-askInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#askForm").requestSubmit(); } });
-
-$("#askForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const q = askInput.value.trim();
-  if (!q) return;
-
-  if (!API.isLive()) {
-    bubble("me", q); askInput.value = "";
-    bubble("sys", "The AI helper isn't connected yet. Ask your faculty to finish the Apps Script setup.");
+  /* 2. already passed earlier, and not currently sitting it */
+  if (!exam.running && r.done) {
+    const nextStep = STEPS[i + 1];
+    $("#main").innerHTML = `<div class="wrap">
+      <header class="thead">
+        <p class="thead__k">${esc(s.unit)} &middot; Test</p>
+        <h2 class="thead__t">${esc(t.title)}</h2>
+      </header>
+      <div class="result is-pass">
+        <div class="result__big">${r.best}<span>/${r.total}</span></div>
+        <div>
+          <h4 class="result__t">Passed</h4>
+          <p class="result__s">Best of ${r.attempts} attempt${r.attempts > 1 ? "s" : ""}. You needed ${need}.</p>
+        </div>
+        <button class="btn btn--quiet" id="retake">Sit it again</button>
+      </div>
+      ${nextStep ? `<div class="finish is-done">
+        <div><h4 class="finish__t">Next</h4><p class="finish__s">${esc(nextStep.title)}</p></div>
+        <button class="btn btn--go" data-next="${i + 1}">Open it</button></div>` : ""}
+      ${credit()}
+    </div>`;
+    $("#retake").addEventListener("click", () => startExam(i));
+    const nb = $("[data-next]"); if (nb) nb.addEventListener("click", () => go({ name: "step", step: +nb.dataset.next }));
     return;
   }
 
-  bubble("me", q);
-  chat.push({ role: "user", text: q });
-  askInput.value = ""; askInput.style.height = "auto";
-  $("#askSend").disabled = true;
+  /* 3. the briefing, before the clock starts */
+  if (!exam.running) {
+    $("#main").innerHTML = `<div class="wrap">
+      <header class="thead">
+        <p class="thead__k">${esc(s.unit)} &middot; Test</p>
+        <h2 class="thead__t">${esc(t.title)}</h2>
+        <p class="thead__s">${t.questions.length} questions &middot; ${t.marksPerQuestion} marks each &middot; ${total} marks total</p>
+      </header>
 
-  const thinking = bubble("ai", "…");
-  thinking.innerHTML = '<span class="spin"></span>';
+      <article class="paper">
+        <h4>Before you start</h4>
+        <ul>
+          <li>You have <strong>${t.durationMinutes} minutes</strong>. The clock starts when you press the button and does not pause.</li>
+          <li>You need <strong>${need} out of ${total}</strong> (${CONFIG.testPassPercent}%) to pass.</li>
+          <li>No feedback until you submit. You can change any answer before then.</li>
+          <li>Unanswered questions score zero, so guess rather than leave a blank.</li>
+          ${CONFIG.focusGuard ? "<li><strong>Do not leave this tab.</strong> Switching away, minimising, or opening another window submits the test immediately, with whatever you have answered so far.</li>" : ""}
+          <li>Reloading the page abandons the attempt and starts you over.</li>
+        </ul>
+        ${r.attempts ? `<div class="callout"><strong>Previous attempts:</strong> ${r.attempts}. Best so far ${r.best}/${r.total}.</div>` : ""}
+      </article>
 
-  const t = view.name === "topic" ? topicAt(view.topic) : null;
-  const context = t
-    ? `${t.unit} — Topic: ${t.title}. ${t.summary} Tasks in this topic: ${t.tasks.map(x => x.title).join("; ")}`
-    : `${COURSE[0].unit}: ${COURSE[0].unitTitle}`;
-
-  const res = await API.ask(student, q, context, chat);
-  thinking.remove();
-
-  if (res && res.ok && res.reply) {
-    bubble("ai", res.reply);
-    chat.push({ role: "model", text: res.reply });
-  } else {
-    bubble("sys", (res && res.error) || "No answer came back. Try once more in a moment.");
+      <div class="finish">
+        <div><h4 class="finish__t">Ready?</h4><p class="finish__s">Sit somewhere quiet and give it ${t.durationMinutes} clear minutes.</p></div>
+        <button class="btn btn--go" id="startExam">Start the test</button>
+      </div>
+      ${credit()}
+    </div>`;
+    $("#startExam").addEventListener("click", () => startExam(i));
+    return;
   }
-  $("#askSend").disabled = false;
-});
+
+  /* 4. the paper itself */
+  $("#main").innerHTML = `<div class="wrap">
+    <div class="exam__bar">
+      <span class="exam__clock" id="clock">--:--</span>
+      <span class="exam__meta" id="answeredCount">0 / ${t.questions.length} answered</span>
+      <button class="btn btn--go btn--sm" id="submitExam">Submit test</button>
+    </div>
+    ${guardNote("the test is submitted on the spot with whatever you have answered")}
+    <div id="examQs">
+      ${t.questions.map((q, qi) => `
+        <div class="eq is-unanswered" data-q="${qi}">
+          <p class="eq__t"><span class="eq__n">Q${qi + 1}</span><span>${q.q}</span><span class="eq__m">${t.marksPerQuestion} marks</span></p>
+          <div class="eq__opts">
+            ${q.options.map((o, oi) =>
+              `<button class="opt" data-q="${qi}" data-o="${oi}">
+                 <span class="opt__key">${String.fromCharCode(65 + oi)}</span><span>${o}</span>
+               </button>`).join("")}
+          </div>
+        </div>`).join("")}
+    </div>
+    <div class="finish"><div><h4 class="finish__t">That's all ${t.questions.length}</h4>
+      <p class="finish__s">Check anything you skipped, then submit.</p></div>
+      <button class="btn btn--go" id="submitExam2">Submit test</button></div>
+  </div>`;
+
+  $("#examQs").addEventListener("click", (e) => {
+    const b = e.target.closest(".opt");
+    if (!b) return;
+    const qi = +b.dataset.q;
+    exam.answers[qi] = +b.dataset.o;
+    const card = $(`.eq[data-q="${qi}"]`);
+    $$(".opt", card).forEach(x => x.classList.remove("is-chosen"));
+    b.classList.add("is-chosen");
+    card.classList.remove("is-unanswered");
+    card.classList.add("is-answered");
+    $("#answeredCount").textContent = `${Object.keys(exam.answers).length} / ${t.questions.length} answered`;
+  });
+
+  const confirmSubmit = () => {
+    const left = t.questions.length - Object.keys(exam.answers).length;
+    if (left && !confirm(`${left} question${left > 1 ? "s are" : " is"} still unanswered. Submit anyway?`)) return;
+    finishExam("Submitted");
+    render();
+  };
+  $("#submitExam").addEventListener("click", confirmSubmit);
+  $("#submitExam2").addEventListener("click", confirmSubmit);
+  tickClock();
+}
+
+function startExam(i) {
+  const t = stepAt(i).data;
+  resetExam();
+  exam.running = true;
+  exam.endsAt = Date.now() + t.durationMinutes * 60000;
+  armGuard(i, true);
+  render();
+  exam.timerId = setInterval(tickClock, 1000);
+}
+
+function tickClock() {
+  const el = $("#clock");
+  if (!el) return;
+  const left = Math.max(0, exam.endsAt - Date.now());
+  const m = Math.floor(left / 60000), sec = Math.floor(left % 60000 / 1000);
+  el.textContent = `${pad(m)}:${pad(sec)}`;
+  el.classList.toggle("is-low", left < 120000);
+  if (left <= 0) { finishExam("Time ran out"); render(); }
+}
+
+function finishExam(reason) {
+  if (!exam.running) return;
+  exam.running = false;
+  if (exam.timerId) { clearInterval(exam.timerId); exam.timerId = null; }
+
+  const i = guard.step >= 0 ? guard.step : view.step;
+  const s = stepAt(i), t = s.data, r = rec(s.id);
+
+  let correct = 0;
+  t.questions.forEach((q, qi) => { if (exam.answers[qi] === q.answer) correct++; });
+
+  const total = totalMarks(t);
+  const score = correct * t.marksPerQuestion;
+  const pct   = Math.round(score / total * 100);
+  const pass  = pct >= CONFIG.testPassPercent;
+
+  r.attempts = (r.attempts || 0) + 1;
+  r.total = total;
+  if (r.best == null || score > r.best) r.best = score;
+  if (pass) r.done = true;
+  saveProgress();
+
+  exam.result = { score, total, pct, pass, correct, reason, answers: Object.assign({}, exam.answers) };
+  armGuard(i, false);
+
+  API.logTest(student, {
+    unit: s.unit, testName: t.title,
+    score, total, percent: pct,
+    result: pass ? "Pass" : "Fail",
+    attempt: r.attempts, reason
+  });
+}
+
+function paintTestResult(i) {
+  const s = stepAt(i), t = s.data, r = rec(s.id), res = exam.result;
+  const need = Math.ceil(res.total * CONFIG.testPassPercent / 100);
+  const nextStep = STEPS[i + 1];
+
+  $("#main").innerHTML = `<div class="wrap">
+    <header class="thead">
+      <p class="thead__k">${esc(s.unit)} &middot; Test result</p>
+      <h2 class="thead__t">${esc(t.title)}</h2>
+    </header>
+
+    <div class="result ${res.pass ? "is-pass" : ""}">
+      <div class="result__big">${res.score}<span>/${res.total}</span></div>
+      <div>
+        <h4 class="result__t">${res.pass ? "Passed" : "Not cleared"}</h4>
+        <p class="result__s">${res.correct} of ${t.questions.length} correct &middot; ${res.pct}% &middot; you needed ${need}.
+        ${res.reason !== "Submitted" ? "<br><strong>" + esc(res.reason) + ".</strong>" : ""}</p>
+      </div>
+      ${res.pass && nextStep
+        ? `<button class="btn btn--go" data-next="${i + 1}">Open the project</button>`
+        : `<button class="btn btn--go" id="retake">Try again</button>`}
+    </div>
+
+    <div class="step"><span class="step__n">Review</span><h3 class="step__t">Every question</h3></div>
+    ${t.questions.map((q, qi) => {
+      const chose = res.answers[qi];
+      const right = chose === q.answer;
+      return `<div class="eq">
+        <p class="eq__t"><span class="eq__n">Q${qi + 1}</span><span>${q.q}</span>
+          <span class="eq__m">${right ? t.marksPerQuestion : 0}/${t.marksPerQuestion}</span></p>
+        <div class="eq__opts">
+          ${q.options.map((o, oi) => {
+            let cls = "opt";
+            if (oi === q.answer) cls += " is-key";
+            else if (oi === chose) cls += " is-miss";
+            return `<button class="${cls}" disabled>
+              <span class="opt__key">${String.fromCharCode(65 + oi)}</span><span>${o}</span></button>`;
+          }).join("")}
+        </div>
+        ${chose === undefined ? '<p class="q__why">You left this one blank.</p>' : ""}
+      </div>`;
+    }).join("")}
+    ${credit()}
+  </div>`;
+
+  const rb = $("#retake"); if (rb) rb.addEventListener("click", () => startExam(i));
+  const nb = $("[data-next]"); if (nb) nb.addEventListener("click", () => go({ name: "step", step: +nb.dataset.next }));
+  paintRail();
+}
+
+/* ======================================================================
+   UNIT PROJECT
+   ====================================================================== */
+function paintProject(i) {
+  const s = stepAt(i), p = s.data, r = rec(s.id);
+  const nextStep = STEPS[i + 1];
+
+  $("#main").innerHTML = `<div class="wrap">
+    <header class="thead">
+      <p class="thead__k">${esc(s.unit)} &middot; Project</p>
+      <h2 class="thead__t">${esc(p.title)}</h2>
+      <p class="thead__s">${esc(p.summary)}</p>
+    </header>
+
+    <article class="brief">${p.brief}</article>
+
+    ${r.done && r.link ? `
+      <div class="submitted">
+        <h4 class="finish__t">Submitted</h4>
+        <p class="finish__s">Sent on ${new Date(r.at).toLocaleString()}.</p>
+        <p><a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.link)}</a></p>
+        <div class="submit__row" style="margin-top:1rem">
+          <button class="btn btn--quiet btn--sm" id="resubmit">Replace the link</button>
+          ${nextStep ? `<button class="btn btn--go btn--sm" data-next="${i + 1}">Continue to ${esc(nextStep.unit)}</button>`
+                     : '<button class="btn btn--go btn--sm" data-home>Back to your progress</button>'}
+        </div>
+      </div>`
+    : `
+      <div class="submit">
+        <h4>Submit your project</h4>
+        <p>Paste a public GitHub repository link, or a Google Drive link shared with
+        "Anyone with the link". Submitting completes ${esc(s.unit)}.</p>
+        <div class="submit__row">
+          <input id="projLink" type="url" placeholder="https://github.com/your-name/student-id-card" spellcheck="false">
+          <button class="btn btn--go" id="projSend">Submit</button>
+        </div>
+        <p class="submit__note" id="projNote">Open the link in a private window first. If it doesn't load there, it won't load for your teacher either.</p>
+      </div>`}
+    ${credit()}
+  </div>`;
+
+  const send = $("#projSend");
+  if (send) send.addEventListener("click", () => submitProject(i));
+  const inp = $("#projLink");
+  if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") submitProject(i); });
+
+  const re = $("#resubmit");
+  if (re) re.addEventListener("click", () => { r.done = false; saveProgress(); render(); });
+
+  const nb = $("[data-next]"); if (nb) nb.addEventListener("click", () => go({ name: "step", step: +nb.dataset.next }));
+  const hb = $("[data-home]"); if (hb) hb.addEventListener("click", () => go({ name: "dashboard" }));
+}
+
+function submitProject(i) {
+  const s = stepAt(i), r = rec(s.id);
+  const note = $("#projNote");
+  const raw  = $("#projLink").value.trim();
+
+  const bad = (m) => { note.textContent = m; note.classList.add("is-bad"); };
+
+  let url;
+  try { url = new URL(raw); } catch { return bad("That isn't a complete link. It should begin with https://"); }
+  if (url.protocol !== "https:") return bad("Use an https:// link.");
+  if (!CONFIG.projectHosts.some(h => url.hostname.endsWith(h)))
+    return bad("Only GitHub or Google Drive links are accepted.");
+
+  if (!confirm("Submit this link?\n\n" + raw + "\n\nThis completes " + s.unit + ".")) return;
+
+  r.link = raw;
+  r.at   = new Date().toISOString();
+  r.done = true;
+  saveProgress();
+
+  API.logProject(student, { unit: s.unit, projectName: s.title, link: raw });
+  toast(s.unit + " complete.");
+  render();
+}
 
 /* ======================================================================
    LEARNING WIDGETS
@@ -718,7 +1084,7 @@ let matchPick = null;
 $("#main").addEventListener("click", (e) => {
   const g = e.target.closest(".w-guess button[data-o]");   if (g) return doGuess(g);
   const f = e.target.closest(".w-flip__card");             if (f) return f.classList.toggle("is-open");
-  const s = e.target.closest(".w-spot__line button");      if (s) return doSpot(s);
+  const sp = e.target.closest(".w-spot__line button");     if (sp) return doSpot(sp);
   const m = e.target.closest(".w-match button");           if (m) return doMatch(m);
 });
 
@@ -755,7 +1121,7 @@ function doMatch(btn) {
   if (btn.disabled) return;
   const box = btn.closest(".w-match");
 
-  if (matchPick && matchPick.el === btn) {                 // tapped the same one again
+  if (matchPick && matchPick.el === btn) {
     btn.classList.remove("is-pick");
     matchPick = null;
     return;
@@ -803,6 +1169,93 @@ if (!ALLOW_PASTE) {
     }, true)
   );
 }
+
+/* ======================================================================
+   ASK A DOUBT
+   ====================================================================== */
+const askPanel = $("#askPanel"), askLog = $("#askLog"), askInput = $("#askInput");
+
+function bubble(role, text) {
+  const d = document.createElement("div");
+  d.className = "bub bub--" + role;
+  d.innerHTML = role === "ai" ? mdLite(text) : esc(text);
+  askLog.appendChild(d);
+  askLog.scrollTop = askLog.scrollHeight;
+  return d;
+}
+
+function mdLite(s) {
+  let h = esc(s);
+  h = h.replace(/```(?:\w+)?\n([\s\S]*?)```/g, (m, c) => `<pre><code>${c}</code></pre>`);
+  h = h.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  h = h.replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>");
+  return "<p>" + h + "</p>";
+}
+
+function openAsk() {
+  askPanel.hidden = false;
+  $("#askBtn").hidden = true;
+  $("#askBtn").setAttribute("aria-expanded", "true");
+  if (!askLog.childElementCount) {
+    const where = view.name === "step" && stepAt(view.step) ? stepAt(view.step).title : COURSE[0].unit;
+    bubble("sys", "Asking about " + where);
+    bubble("ai", "Ask me anything from this topic — a word you didn't follow, an error message you got, or why your output looks wrong. I'll explain it, but I won't type your task answers for you.");
+  }
+  askInput.focus();
+}
+function closeAsk() {
+  askPanel.hidden = true;
+  $("#askBtn").hidden = !CONFIG.aiEnabled;
+  $("#askBtn").setAttribute("aria-expanded", "false");
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !askPanel.hidden) closeAsk(); });
+
+$("#askBtn").addEventListener("click", openAsk);
+$("#askClose").addEventListener("click", closeAsk);
+askInput.addEventListener("input", () => { askInput.style.height = "auto"; askInput.style.height = Math.min(askInput.scrollHeight, 112) + "px"; });
+askInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#askForm").requestSubmit(); } });
+
+$("#askForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = askInput.value.trim();
+  if (!q) return;
+
+  if (exam.running) {
+    bubble("sys", "The helper is closed during a test.");
+    askInput.value = "";
+    return;
+  }
+  if (!API.isLive()) {
+    bubble("me", q); askInput.value = "";
+    bubble("sys", "The AI helper isn't connected yet. Ask your faculty to finish the Apps Script setup.");
+    return;
+  }
+
+  bubble("me", q);
+  chat.push({ role: "user", text: q });
+  askInput.value = ""; askInput.style.height = "auto";
+  $("#askSend").disabled = true;
+
+  const thinking = bubble("ai", "…");
+  thinking.innerHTML = '<span class="spin"></span>';
+
+  const s = view.name === "step" ? stepAt(view.step) : null;
+  const context = s && s.kind === "topic"
+    ? `${s.unit} — Topic: ${s.title}. ${s.summary} Tasks in this topic: ${s.data.tasks.map(x => x.title).join("; ")}`
+    : `${COURSE[0].unit}: ${COURSE[0].unitTitle}`;
+
+  const res = await API.ask(student, q, context, chat);
+  thinking.remove();
+
+  if (res && res.ok && res.reply) {
+    bubble("ai", res.reply);
+    chat.push({ role: "model", text: res.reply });
+  } else {
+    bubble("sys", (res && res.error) || "No answer came back. Try once more in a moment.");
+  }
+  $("#askSend").disabled = false;
+});
 
 /* ======================================================================
    BOOT
