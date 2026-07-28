@@ -1,3 +1,4 @@
+/* AbhyasLab app.js — optional task levels, staged hints and stronger validation checks. */
 /* ==========================================================================
    AbhyasLab — application
    ========================================================================== */
@@ -38,7 +39,7 @@ function credit() {
 }
 
 function guardNote(what) {
-  if (!CONFIG.focusGuard || isFaculty()) return "";
+  if (!CONFIG.focusGuard) return "";
   return `<div class="guard">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L22 20 H2 Z M11 9h2v6h-2z m0 8h2v2h-2z"/></svg>
     <span>Stay on this tab. If you switch away, minimise, or open another window,
@@ -88,7 +89,6 @@ function loadProgress() {
   catch { return {}; }
 }
 function saveProgress() {
-  if (isFaculty()) return;                      // preview only — nothing is kept
   try { localStorage.setItem(keyProgress(student.id), JSON.stringify(progress)); } catch {}
 }
 function rec(id) {
@@ -97,28 +97,7 @@ function rec(id) {
   return progress[id];
 }
 
-/* ----------------------------------------------------------------------
-   WHO IS THIS?
-   Roll numbers beginning with S are students: locked in sequence, and
-   everything they do is written to the Sheet.
-   IDs beginning with F are faculty: every unit open from the start, and
-   nothing is recorded anywhere.
-   ---------------------------------------------------------------------- */
-const isFaculty = () => !!student && /^f/i.test(String(student.id).trim());
-
-/* Faculty calls quietly go nowhere. One wrapper, so no call site can forget. */
-const SYNC = (() => {
-  const skip = () => Promise.resolve({ ok: false, faculty: true });
-  const w = {};
-  ["register", "logProgress", "logTest", "logProject", "heartbeat", "flag", "checkStudent"]
-    .forEach(fn => { w[fn] = (...args) => isFaculty() ? skip() : API[fn](...args); });
-  w.beacon = (...args) => isFaculty() ? false : API.beacon(...args);
-  w.isLive = () => API.isLive();
-  return w;
-})();
-
 function isUnlocked(i) {
-  if (isFaculty()) return true;                 // faculty see every unit at once
   if (!CONFIG.lockingEnabled || i === 0) return true;
   const prev = progress[STEPS[i - 1].id];
   return !!(prev && prev.done);
@@ -139,7 +118,6 @@ function currentScreen() {
 }
 
 function beginSession() {
-  if (isFaculty()) return;                      // no time tracking for faculty
   SESSION.id = String(student.id).replace(/\s+/g, "") + "-" + Date.now().toString(36);
   SESSION.active = 0;
   SESSION.lastTick = Date.now();
@@ -158,15 +136,15 @@ function tickSession() {
 function beat() {
   if (!SESSION.id) return;
   SESSION.lastSent = Date.now();
-  SYNC.heartbeat(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
+  API.heartbeat(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
 }
 
 /* one last ping as the tab closes */
 window.addEventListener("pagehide", () => {
-  if (!SESSION.id || isFaculty()) return;
+  if (!SESSION.id) return;
   const now = Date.now();
   if (document.visibilityState === "visible") SESSION.active += now - SESSION.lastTick;
-  SYNC.beacon(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
+  API.beacon(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
 });
 
 /* ======================================================================
@@ -196,7 +174,7 @@ document.addEventListener("visibilitychange", () => {
     }
     return;
   }
-  if (!CONFIG.focusGuard || !guard.armed || isFaculty()) return;
+  if (!CONFIG.focusGuard || !guard.armed) return;
   if (guard.allowLeave) { guard.allowLeave = false; return; }
 
   const s = stepAt(guard.step);
@@ -204,17 +182,17 @@ document.addEventListener("visibilitychange", () => {
 
   if (s.kind === "test" && exam.running) {
     finishExam("You left the tab");
-    SYNC.flag(student, { event: "Left the tab during a test", where: s.title,
+    API.flag(student, { event: "Left the tab during a test", where: s.title,
                         detail: "Test submitted automatically" });
     guard.pending = "You left the tab, so the test was submitted.";
   } else if (s.kind === "topic") {
     delete progress[s.id];
     saveProgress();
-    SYNC.logProgress(student, {
+    API.logProgress(student, {
       unit: s.unit, topic: s.title, mcqScore: "",
       codeStatus: "Left the tab", progression: "Topic progress reset"
     });
-    SYNC.flag(student, { event: "Left the tab during a topic", where: s.title,
+    API.flag(student, { event: "Left the tab during a topic", where: s.title,
                         detail: "Topic progress cleared" });
     guard.pending = "You left the tab. This topic's progress was cleared.";
   }
@@ -272,18 +250,13 @@ $("#regForm").addEventListener("submit", async (e) => {
   const btn  = $("#regForm button[type=submit]");
 
   if (id.length < 3)   { note.textContent = "That roll number looks too short — use the one on your ID card."; note.classList.add("is-bad"); return; }
-  if (!/^[sf]/i.test(id)) {
-    note.textContent = "Roll numbers start with S. Faculty IDs start with F. Check yours and try again.";
-    note.classList.add("is-bad");
-    return;
-  }
   if (name.length < 3) { note.textContent = "Enter your full name."; note.classList.add("is-bad"); return; }
 
   note.classList.remove("is-bad");
   note.innerHTML = '<span class="spin"></span> Setting up your workspace…';
   btn.disabled = true;
 
-  const chk = await SYNC.checkStudent(id);
+  const chk = await API.checkStudent(id);
   btn.disabled = false;
   if (chk && chk.blocked) {
     note.textContent = "This roll number has been removed by your faculty. Speak to them before continuing.";
@@ -295,7 +268,7 @@ $("#regForm").addEventListener("submit", async (e) => {
   localStorage.setItem(KEY_STUDENT, JSON.stringify(student));
   progress = loadProgress();
 
-  SYNC.register(student);          // logged in the background; never blocks the student
+  API.register(student);          // logged in the background; never blocks the student
   startApp();
 });
 
@@ -306,8 +279,6 @@ function startApp() {
   $("#whoId").textContent   = student.id;
   $("#railUnitTitle").textContent = COURSE[0].unitTitle;
   $("#askBtn").hidden = !CONFIG.aiEnabled;
-  const tag = $("#whoTag");
-  if (tag) tag.hidden = !isFaculty();
   go({ name: "dashboard" });
   beginSession();
 }
@@ -315,8 +286,7 @@ function startApp() {
 /* A student deleted by faculty may still have data in their own browser.
    Check on every load and clear them out if so. */
 async function verifyStudent() {
-  if (isFaculty()) return;
-  const chk = await SYNC.checkStudent(student.id);
+  const chk = await API.checkStudent(student.id);
   if (!chk || !chk.blocked) return;
   try {
     localStorage.removeItem(KEY_STUDENT);
@@ -412,7 +382,7 @@ function paintDashboard() {
 
   $("#main").innerHTML = `<div class="wrap">
     <section class="hero">
-      <p class="hero__k">${esc(CONFIG.institution)} &middot; ${esc(CONFIG.courseName)}${isFaculty() ? " &middot; Faculty preview" : ""}</p>
+      <p class="hero__k">${esc(CONFIG.institution)} &middot; ${esc(CONFIG.courseName)}</p>
       <h2 class="hero__t">${n === 0 ? "Welcome, " + first + "." : "Keep going, " + first + "."}</h2>
       <p class="hero__s">${n === 0
         ? "Read, answer, then write Python that runs on this page. Finish the topics, clear the unit test, submit the project."
@@ -435,12 +405,6 @@ function paintDashboard() {
         </g>
       </svg>
     </section>
-
-    ${isFaculty() ? `<div class="guard guard--info">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v2h-2zm0 4h2v6h-2z"/></svg>
-      <span><b>Faculty preview.</b> Every topic, test and project is open. Nothing you do here
-      is saved to the Sheet or kept in this browser — refresh and it all resets.</span>
-    </div>` : ""}
 
     <div class="stats">
       <div class="stat"><b>${n}/${STEPS.length}</b><span>Steps complete</span></div>
@@ -593,7 +557,7 @@ function settleQuiz(s, r, answered) {
   if (pass) r.mcqPassed = true;
   saveProgress();
 
-  SYNC.logProgress(student, {
+  API.logProgress(student, {
     unit: s.unit, topic: t.title,
     mcqScore: score + "/" + total,
     codeStatus: "Quiz attempted",
@@ -626,16 +590,35 @@ function paintTasks(s, r) {
 
   host.innerHTML = t.tasks.map(task => {
     const passed = !!r.tasks[task.id];
+    const levelBadge = task.level
+      ? `<span style="display:inline-block;margin:.3rem .45rem .15rem 0;padding:.22rem .55rem;border:1px solid currentColor;border-radius:999px;font-size:.72rem;font-weight:700;opacity:.9">${esc(task.level)}</span>`
+      : "";
+    const hintHtml = (task.hints || []).length
+      ? `<div style="margin:.75rem 0 0;display:grid;gap:.45rem">${task.hints.map((hint, i) =>
+          `<details style="border:1px dashed var(--indigo-line);border-radius:.55rem;padding:.45rem .65rem;background:rgba(255,255,255,.03)">
+             <summary style="cursor:pointer;font-weight:700">Hint ${i + 1}</summary>
+             <p style="margin:.45rem 0 .1rem">${esc(hint)}</p>
+           </details>`).join("")}</div>`
+      : "";
     if (task.kind === "confirm") {
-      return `<div class="confirm">
-        <input type="checkbox" id="c_${task.id}" data-confirm="${task.id}" ${passed ? "checked" : ""}>
-        <label for="c_${task.id}">${task.label}</label>
-      </div>`;
+      return `<section class="task ${passed ? "is-passed" : ""}">
+        <header class="task__head">
+          <div>${levelBadge}</div>
+          <h4 class="task__t">${esc(task.title || "Practical activity")}<span class="task__pill">${passed ? "Completed" : "Not completed"}</span></h4>
+          ${task.brief ? `<p class="task__b">${esc(task.brief)}</p>` : ""}
+        </header>
+        <div class="confirm">
+          <input type="checkbox" id="c_${task.id}" data-confirm="${task.id}" ${passed ? "checked" : ""}>
+          <label for="c_${task.id}">${task.label}</label>
+        </div>
+      </section>`;
     }
     return `<section class="task ${passed ? "is-passed" : ""}" data-task="${task.id}">
       <header class="task__head">
+        <div>${levelBadge}</div>
         <h4 class="task__t">${esc(task.title)}<span class="task__pill">${passed ? "Passed" : "Not run yet"}</span></h4>
         <p class="task__b">${esc(task.brief)}</p>
+        ${hintHtml}
       </header>
       <div class="editor">
         <div class="editor__gutter" data-gutter></div>
@@ -758,17 +741,45 @@ function evaluate(task, source, stdout) {
         ok = tidy(stdout).split("\n").filter(l => l.trim()).length >= c.value;
         label = c.message || `Prints at least ${c.value} lines`;
         break;
+      case "stdoutLineCount":
+        ok = tidy(stdout).split("\n").filter(l => l.trim()).length === c.value;
+        label = c.message || `Prints exactly ${c.value} non-empty lines`;
+        break;
+      case "stdoutRegex":
+        ok = new RegExp(c.pattern, c.flags || "m").test(tidy(stdout));
+        label = c.message || "Output matches the required pattern";
+        break;
+      case "stdoutNumberEquals": {
+        const actual = Number(tidy(stdout));
+        const expected = Number(c.value);
+        const tolerance = Number.isFinite(Number(c.tolerance)) ? Number(c.tolerance) : 1e-9;
+        ok = Number.isFinite(actual) && Number.isFinite(expected) && Math.abs(actual - expected) <= tolerance;
+        label = c.message || `Numerical output equals ${c.value}`;
+        break;
+      }
       case "sourceIncludes":
         ok = source.includes(c.value);
         label = c.message || `Code uses ${c.value}`;
         break;
+      case "sourceNotIncludes":
+        ok = !source.includes(c.value);
+        label = c.message || `Code does not use ${c.value}`;
+        break;
       case "sourceRegex":
-        ok = new RegExp(c.pattern, "m").test(source);
+        ok = new RegExp(c.pattern, c.flags || "m").test(source);
         label = c.message || "Code matches the required pattern";
         break;
+      case "sourceNotRegex":
+        ok = !new RegExp(c.pattern, c.flags || "m").test(source);
+        label = c.message || "Code avoids the blocked pattern";
+        break;
       case "sourceMinMatches":
-        ok = (source.match(new RegExp(c.pattern, "gm")) || []).length >= c.count;
+        ok = (source.match(new RegExp(c.pattern, c.flags || "gm")) || []).length >= c.count;
         label = c.message || `Code contains at least ${c.count} of the required pattern`;
+        break;
+      case "sourceMinNonEmptyLines":
+        ok = source.split("\n").filter(l => l.trim()).length >= c.value;
+        label = c.message || `Code contains at least ${c.value} non-empty lines`;
         break;
       default:
         ok = true; label = "Checked";
@@ -821,7 +832,7 @@ async function runTask(s, r, task, sec, btn) {
     saveProgress();
     if (!wasPassed) {
       toast("Task passed — nice.");
-      SYNC.logProgress(student, {
+      API.logProgress(student, {
         unit: s.unit, topic: s.title,
         mcqScore: r.mcqTotal ? r.mcqScore + "/" + r.mcqTotal : "",
         codeStatus: "Passed: " + task.title,
@@ -848,7 +859,7 @@ function paintFinish(i) {
   if (complete && !r.done) {
     r.done = true;
     saveProgress();
-    SYNC.logProgress(student, {
+    API.logProgress(student, {
       unit: s.unit, topic: t.title,
       mcqScore: r.mcqScore + "/" + r.mcqTotal,
       codeStatus: "All tasks passed",
@@ -1022,7 +1033,7 @@ function tickClock() {
   el.classList.toggle("is-low", left < 120000);
   if (left <= 0) {
     finishExam("Time ran out");
-    SYNC.flag(student, { event: "Test ran out of time", where: currentScreen(), detail: "Auto-submitted" });
+    API.flag(student, { event: "Test ran out of time", where: currentScreen(), detail: "Auto-submitted" });
     render();
   }
 }
@@ -1052,7 +1063,7 @@ function finishExam(reason) {
   exam.result = { score, total, pct, pass, correct, reason, answers: Object.assign({}, exam.answers) };
   armGuard(i, false);
 
-  SYNC.logTest(student, {
+  API.logTest(student, {
     unit: s.unit, testName: t.title,
     score, total, percent: pct,
     result: pass ? "Pass" : "Fail",
@@ -1183,7 +1194,7 @@ function submitProject(i) {
   r.done = true;
   saveProgress();
 
-  SYNC.logProject(student, { unit: s.unit, projectName: s.title, link: raw });
+  API.logProject(student, { unit: s.unit, projectName: s.title, link: raw });
   toast(s.unit + " complete.");
   render();
 }
@@ -1294,7 +1305,7 @@ function flagPaste() {
   const now = Date.now();
   if (now - lastPasteFlag < 60000) return;
   lastPasteFlag = now;
-  SYNC.flag(student, { event: "Paste blocked in the code editor", where: currentScreen(),
+  API.flag(student, { event: "Paste blocked in the code editor", where: currentScreen(),
                       detail: "Student tried to paste code" });
 }
 
