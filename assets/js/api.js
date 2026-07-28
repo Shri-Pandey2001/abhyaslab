@@ -62,6 +62,43 @@ const API = (() => {
       }, who(student)));
     },
 
+    /* Session_Log — how long they actually spent on the page. */
+    heartbeat(student, row) {
+      return post(Object.assign({
+        action: "heartbeat",
+        sessionId: row.sessionId,
+        minutes: Math.round(row.minutes * 10) / 10,
+        screen: row.screen || ""
+      }, who(student)));
+    },
+
+    /* Same thing, but survives the tab closing. */
+    beacon(student, row) {
+      if (!live() || !navigator.sendBeacon) return false;
+      const body = JSON.stringify(Object.assign({
+        action: "heartbeat",
+        sessionId: row.sessionId,
+        minutes: Math.round(row.minutes * 10) / 10,
+        screen: row.screen || ""
+      }, who(student)));
+      try {
+        return navigator.sendBeacon(CONFIG.endpoint, new Blob([body], { type: "text/plain;charset=utf-8" }));
+      } catch { return false; }
+    },
+
+    /* Integrity_Log — tab switches, blocked pastes, forced submissions. */
+    flag(student, row) {
+      if (!CONFIG.integrityLogging) return Promise.resolve({ ok: false });
+      return post(Object.assign({
+        action: "flag", event: row.event, where: row.where || "", detail: row.detail || ""
+      }, who(student)));
+    },
+
+    /* Has faculty deleted this roll number? */
+    checkStudent(studentId) {
+      return post({ action: "check", studentId });
+    },
+
     /* Proxied to Gemini inside Apps Script, so the key never reaches the browser. */
     ask(student, question, context, history) {
       return post(Object.assign({ action: "ask", question, context, history: history.slice(-6) }, who(student)));
