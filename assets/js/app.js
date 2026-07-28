@@ -709,6 +709,82 @@ $("#askForm").addEventListener("submit", async (e) => {
 });
 
 /* ======================================================================
+   LEARNING WIDGETS
+   Delegated once on #main, so anything dropped into a topic's notes just
+   works. None of this affects a student's score — it is practice, not marks.
+   ====================================================================== */
+let matchPick = null;
+
+$("#main").addEventListener("click", (e) => {
+  const g = e.target.closest(".w-guess button[data-o]");   if (g) return doGuess(g);
+  const f = e.target.closest(".w-flip__card");             if (f) return f.classList.toggle("is-open");
+  const s = e.target.closest(".w-spot__line button");      if (s) return doSpot(s);
+  const m = e.target.closest(".w-match button");           if (m) return doMatch(m);
+});
+
+function doGuess(btn) {
+  const box = btn.closest(".w-guess");
+  if (box.classList.contains("is-done")) return;
+  box.classList.add("is-done");
+  const right = +box.dataset.answer;
+  $$("button[data-o]", box).forEach(b => {
+    b.disabled = true;
+    if (+b.dataset.o === right) b.classList.add("is-right");
+    else if (b === btn) b.classList.add("is-wrong");
+  });
+  const why = $(".w__why", box);
+  if (why) why.classList.add("is-shown");
+}
+
+function doSpot(btn) {
+  const box = btn.closest(".w-spot");
+  if (box.classList.contains("is-done")) return;
+  if (btn.hasAttribute("data-bad")) {
+    box.classList.add("is-done");
+    $$("button", box).forEach(b => { b.disabled = true; });
+    btn.classList.add("is-right");
+    const why = $(".w__why", box);
+    if (why) why.classList.add("is-shown");
+  } else {
+    btn.classList.add("is-wrong");
+    setTimeout(() => btn.classList.remove("is-wrong"), 700);
+  }
+}
+
+function doMatch(btn) {
+  if (btn.disabled) return;
+  const box = btn.closest(".w-match");
+
+  if (matchPick && matchPick.el === btn) {                 // tapped the same one again
+    btn.classList.remove("is-pick");
+    matchPick = null;
+    return;
+  }
+  if (!matchPick || matchPick.box !== box || matchPick.el.parentElement === btn.parentElement) {
+    if (matchPick) matchPick.el.classList.remove("is-pick");
+    matchPick = { el: btn, box };
+    btn.classList.add("is-pick");
+    return;
+  }
+
+  const first = matchPick.el;
+  first.classList.remove("is-pick");
+  matchPick = null;
+
+  if (first.dataset.pair === btn.dataset.pair) {
+    [first, btn].forEach(b => { b.classList.add("is-right"); b.disabled = true; });
+    if (!$$(".w-match button:not([disabled])", box).length) {
+      const why = $(".w__why", box);
+      if (why) why.classList.add("is-shown");
+      toast("All matched.");
+    }
+  } else {
+    [first, btn].forEach(b => b.classList.add("is-wrong"));
+    setTimeout(() => [first, btn].forEach(b => b.classList.remove("is-wrong")), 650);
+  }
+}
+
+/* ======================================================================
    TYPE IT YOURSELF
    One capture-phase listener on the document, so it applies to every code
    editor on the page — including ones created later when a topic is opened.
