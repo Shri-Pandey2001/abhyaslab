@@ -42,7 +42,16 @@ const CONFIG = {
         contain one of these. */
   projectHosts: ["github.com", "drive.google.com", "docs.google.com"],
 
-  /* 10. Shown in the footer of every screen. */
+  /* 10. How often the site tells the Sheet a student is still working, in
+         seconds. Only time with the tab actually in front is counted. Raise
+         this if you have a very large cohort. */
+  heartbeatSeconds: 120,
+
+  /* 11. Log tab-switches, blocked pastes and forced test submissions to the
+         Integrity_Log tab. */
+  integrityLogging: true,
+
+  /* 12. Shown in the footer of every screen. */
   author: "Shridhar Pandey",
   authorGithub: "https://github.com/shridhar-pandey",
   authorInstagram: "https://www.instagram.com/shridhar_siddheshwar_pandey?igsh=N3pxYzNjYWl3OWlw"
