@@ -1,6 +1,6 @@
 /* ==========================================================================
    AbhyasLab — talking to Google Apps Script
-   Every call is fire-and-forget for logging, awaited only for the AI reply.
+   Logging calls are fire-and-forget; only the AI reply is awaited.
    Content-Type is text/plain on purpose: it keeps the browser from sending a
    CORS preflight, which Apps Script cannot answer.
    ========================================================================== */
@@ -25,43 +25,46 @@ const API = (() => {
     }
   }
 
+  const who = (s) => ({ studentId: s.id, studentName: s.name });
+
   return {
     isLive: live,
 
-    /* Written to the Students_Master tab. */
+    /* Students_Master */
     register(student) {
-      return post({
-        action: "register",
-        studentId: student.id,
-        studentName: student.name,
-        course: CONFIG.courseName
-      });
+      return post(Object.assign({ action: "register", course: CONFIG.courseName }, who(student)));
     },
 
-    /* Written to the Activity_Log tab, and updates the student's furthest topic. */
+    /* Activity_Log */
     logProgress(student, row) {
-      return post({
+      return post(Object.assign({
         action: "progress",
-        studentId: student.id,
-        studentName: student.name,
-        unit: row.unit,
-        topic: row.topic,
-        mcqScore: row.mcqScore,
-        codeStatus: row.codeStatus,
-        progression: row.progression
-      });
+        unit: row.unit, topic: row.topic,
+        mcqScore: row.mcqScore, codeStatus: row.codeStatus, progression: row.progression
+      }, who(student)));
     },
 
-    /* Proxied to Gemini inside Apps Script so the key never reaches the browser. */
+    /* Test_Results */
+    logTest(student, row) {
+      return post(Object.assign({
+        action: "test",
+        unit: row.unit, testName: row.testName,
+        score: row.score, total: row.total, percent: row.percent,
+        result: row.result, attempt: row.attempt, reason: row.reason || "Submitted"
+      }, who(student)));
+    },
+
+    /* Project_Submissions */
+    logProject(student, row) {
+      return post(Object.assign({
+        action: "project",
+        unit: row.unit, projectName: row.projectName, link: row.link
+      }, who(student)));
+    },
+
+    /* Proxied to Gemini inside Apps Script, so the key never reaches the browser. */
     ask(student, question, context, history) {
-      return post({
-        action: "ask",
-        studentId: student.id,
-        studentName: student.name,
-        question,
-        context,
-        history: history.slice(-6)
-      });
+      return post(Object.assign({ action: "ask", question, context, history: history.slice(-6) }, who(student)));
     }
   };
 })();
