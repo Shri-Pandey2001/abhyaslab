@@ -284,6 +284,14 @@ button,input,textarea{font:inherit;color:inherit}
   color:var(--marigold);font-weight:700;
   border-top:1px solid var(--indigo-line);
 }
+.rail__unit-break{
+  list-style:none;margin:1.55rem 0 1.05rem;padding:1.25rem 0 0;
+  border-top:1px solid var(--indigo-line);
+}
+.rail__unit-break .rail__title{font-size:1.12rem;line-height:1.25;margin-bottom:.8rem}
+.rail__unit-break .rail__count{margin-bottom:.2rem}
+.rail__unit-break + .tnode::before{top:1.55rem}
+.tnode.is-unit-last::before{bottom:calc(100% - 1.55rem)}
 .rail__foot{
   margin-top:1.6rem;padding-top:1.1rem;
   border-top:1px solid var(--indigo-line);
@@ -423,6 +431,27 @@ button,input,textarea{font:inherit;color:inherit}
 }
 .task.is-passed .task__pill{border-color:var(--peacock);color:var(--peacock)}
 .task__b{font-family:var(--prose);color:#B7B4A8;margin-top:.5rem;font-size:1rem}
+.task__b code,.task__hint code,.confirm code{
+  font-family:var(--mono);font-size:.88em;color:#F3C98B;
+  background:rgba(242,160,61,.11);border:1px solid rgba(242,160,61,.2);
+  padding:.08em .34em;border-radius:4px;
+}
+.task__level{
+  display:inline-flex;align-items:center;margin:0 0 .55rem;
+  padding:.22rem .58rem;border-radius:99px;
+  border:1px solid rgba(242,160,61,.55);background:rgba(242,160,61,.1);
+  color:#F3C98B;font-family:var(--mono);font-size:.68rem;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;
+}
+.task__hints{display:grid;gap:.48rem;margin-top:.85rem}
+.task__hint{
+  border:1px dashed var(--indigo-line);border-radius:var(--r-sm);
+  background:rgba(239,237,228,.035);padding:.48rem .65rem;
+}
+.task__hint[open]{border-color:rgba(242,160,61,.5);background:rgba(242,160,61,.055)}
+.task__hint summary{cursor:pointer;font-size:.82rem;font-weight:700;color:#D6D9E8}
+.task__hint summary::marker{color:var(--marigold)}
+.task__hint p{font-family:var(--prose);font-size:.94rem;color:#B7B4A8;margin:.5rem 0 .1rem}
 
 .editor{position:relative;background:#0A1024}
 .editor__gutter{
@@ -481,6 +510,7 @@ button,input,textarea{font:inherit;color:inherit}
   accent-color:var(--marigold);flex:0 0 auto;cursor:pointer;
 }
 .confirm label{font-family:var(--prose);font-size:1.02rem;cursor:pointer}
+.task--confirm .confirm{border:0;border-radius:0;background:transparent}
 
 /* ---------- topic footer / unlock banner ---------- */
 .finish{
