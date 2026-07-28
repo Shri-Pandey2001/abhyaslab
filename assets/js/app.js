@@ -104,6 +104,49 @@ function isUnlocked(i) {
 const doneCount = () => STEPS.filter(s => progress[s.id] && progress[s.id].done).length;
 
 /* ======================================================================
+   SESSION CLOCK
+   Counts only the time the tab is actually in front, and reports it to the
+   Session_Log tab so faculty see real time on task, not time since login.
+   ====================================================================== */
+const SESSION = { id: null, active: 0, lastTick: 0, lastSent: 0, timer: null };
+
+function currentScreen() {
+  if (view.name === "dashboard") return "Home";
+  const s = stepAt(view.step);
+  return s ? s.title : "Home";
+}
+
+function beginSession() {
+  SESSION.id = String(student.id).replace(/\s+/g, "") + "-" + Date.now().toString(36);
+  SESSION.active = 0;
+  SESSION.lastTick = Date.now();
+  SESSION.lastSent = 0;
+  beat();
+  SESSION.timer = setInterval(tickSession, 15000);
+}
+
+function tickSession() {
+  const now = Date.now();
+  if (document.visibilityState === "visible") SESSION.active += now - SESSION.lastTick;
+  SESSION.lastTick = now;
+  if (now - SESSION.lastSent >= (CONFIG.heartbeatSeconds || 120) * 1000) beat();
+}
+
+function beat() {
+  if (!SESSION.id) return;
+  SESSION.lastSent = Date.now();
+  API.heartbeat(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
+}
+
+/* one last ping as the tab closes */
+window.addEventListener("pagehide", () => {
+  if (!SESSION.id) return;
+  const now = Date.now();
+  if (document.visibilityState === "visible") SESSION.active += now - SESSION.lastTick;
+  API.beacon(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
+});
+
+/* ======================================================================
    FOCUS GUARD
    Leave the tab mid-topic and that topic resets. Leave mid-test and the
    test is submitted where it stands.
@@ -138,6 +181,8 @@ document.addEventListener("visibilitychange", () => {
 
   if (s.kind === "test" && exam.running) {
     finishExam("You left the tab");
+    API.flag(student, { event: "Left the tab during a test", where: s.title,
+                        detail: "Test submitted automatically" });
     guard.pending = "You left the tab, so the test was submitted.";
   } else if (s.kind === "topic") {
     delete progress[s.id];
@@ -146,6 +191,8 @@ document.addEventListener("visibilitychange", () => {
       unit: s.unit, topic: s.title, mcqScore: "",
       codeStatus: "Left the tab", progression: "Topic progress reset"
     });
+    API.flag(student, { event: "Left the tab during a topic", where: s.title,
+                        detail: "Topic progress cleared" });
     guard.pending = "You left the tab. This topic's progress was cleared.";
   }
 });
@@ -194,17 +241,27 @@ function typeShell() {
 /* ======================================================================
    REGISTRATION
    ====================================================================== */
-$("#regForm").addEventListener("submit", (e) => {
+$("#regForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const id   = $("#regId").value.trim();
   const name = $("#regName").value.trim();
   const note = $("#regNote");
+  const btn  = $("#regForm button[type=submit]");
 
   if (id.length < 3)   { note.textContent = "That roll number looks too short — use the one on your ID card."; note.classList.add("is-bad"); return; }
   if (name.length < 3) { note.textContent = "Enter your full name."; note.classList.add("is-bad"); return; }
 
   note.classList.remove("is-bad");
   note.innerHTML = '<span class="spin"></span> Setting up your workspace…';
+  btn.disabled = true;
+
+  const chk = await API.checkStudent(id);
+  btn.disabled = false;
+  if (chk && chk.blocked) {
+    note.textContent = "This roll number has been removed by your faculty. Speak to them before continuing.";
+    note.classList.add("is-bad");
+    return;
+  }
 
   student = { id, name, since: new Date().toISOString() };
   localStorage.setItem(KEY_STUDENT, JSON.stringify(student));
@@ -222,6 +279,22 @@ function startApp() {
   $("#railUnitTitle").textContent = COURSE[0].unitTitle;
   $("#askBtn").hidden = !CONFIG.aiEnabled;
   go({ name: "dashboard" });
+  beginSession();
+}
+
+/* A student deleted by faculty may still have data in their own browser.
+   Check on every load and clear them out if so. */
+async function verifyStudent() {
+  const chk = await API.checkStudent(student.id);
+  if (!chk || !chk.blocked) return;
+  try {
+    localStorage.removeItem(KEY_STUDENT);
+    localStorage.removeItem(keyProgress(student.id));
+  } catch {}
+  if (SESSION.timer) clearInterval(SESSION.timer);
+  SESSION.id = null;
+  alert("This roll number has been removed by your faculty. Speak to them before continuing.");
+  location.reload();
 }
 
 /* ======================================================================
@@ -910,7 +983,11 @@ function tickClock() {
   const m = Math.floor(left / 60000), sec = Math.floor(left % 60000 / 1000);
   el.textContent = `${pad(m)}:${pad(sec)}`;
   el.classList.toggle("is-low", left < 120000);
-  if (left <= 0) { finishExam("Time ran out"); render(); }
+  if (left <= 0) {
+    finishExam("Time ran out");
+    API.flag(student, { event: "Test ran out of time", where: currentScreen(), detail: "Auto-submitted" });
+    render();
+  }
 }
 
 function finishExam(reason) {
@@ -1165,9 +1242,23 @@ if (!ALLOW_PASTE) {
       if (!el || !el.closest || !el.closest(".editor")) return;
       e.preventDefault();
       e.stopPropagation();
-      if (evt === "paste") toast("Type the code yourself — pasting is off here.");
+      if (evt === "paste") {
+        toast("Type the code yourself — pasting is off here.");
+        flagPaste();
+      }
     }, true)
   );
+}
+
+/* one flag a minute at most, so a frustrated student doesn't fill the log */
+let lastPasteFlag = 0;
+function flagPaste() {
+  if (!student) return;
+  const now = Date.now();
+  if (now - lastPasteFlag < 60000) return;
+  lastPasteFlag = now;
+  API.flag(student, { event: "Paste blocked in the code editor", where: currentScreen(),
+                      detail: "Student tried to paste code" });
 }
 
 /* ======================================================================
@@ -1264,6 +1355,7 @@ student = loadStudent();
 if (student && student.id) {
   progress = loadProgress();
   startApp();
+  verifyStudent();
 } else {
   $("#gate").hidden = false;
   typeShell();
