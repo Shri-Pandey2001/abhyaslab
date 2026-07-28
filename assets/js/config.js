@@ -16,7 +16,7 @@ const CONFIG = {
   aiEnabled: true,
 
   /* 3. Shown on screen. */
-  institution: "Shri Khushal Das University",
+  institution: "",
   courseName: "Python Programming",
 
   /* 4. Marks needed to clear a topic's quiz (percent). */
