@@ -16,7 +16,7 @@ const CONFIG = {
   aiEnabled: true,
 
   /* 3. Shown on screen. */
-  institution: "Shri Khushal Das University",
+  institution: "LPU",
   courseName: "Python Programming",
 
   /* 4. Marks needed to clear a topic's quiz (percent). */
@@ -29,4 +29,21 @@ const CONFIG = {
   /* 6. Set false while you are still writing content, so you can open any
         topic without clearing the earlier ones. Set true before rollout. */
   lockingEnabled: true
+
+  /* 7. Focus guard. When true, leaving the tab in the middle of a topic wipes
+        that topic's progress, and leaving during a test submits it instantly.
+        Set to false if you'd rather not police it. */
+  focusGuard: true,
+
+  /* 8. Marks needed to pass the end-of-unit test (percent). */
+  testPassPercent: 60,
+
+  /* 9. Where students may host their unit project. A submitted link must
+        contain one of these. */
+  projectHosts: ["github.com", "drive.google.com", "docs.google.com"],
+
+  /* 10. Shown in the footer of every screen. */
+  author: "Shridhar Pandey",
+  authorGithub: "https://github.com/shridhar-pandey",
+  authorInstagram: "https://www.instagram.com/shridhar_siddheshwar_pandey?igsh=N3pxYzNjYWl3OWlw"
 };
