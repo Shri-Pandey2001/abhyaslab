@@ -11,10 +11,14 @@
 var TAB_STUDENTS = 'Students_Master';
 var TAB_ACTIVITY = 'Activity_Log';
 var TAB_DOUBTS   = 'Doubt_Log';
+var TAB_TESTS    = 'Test_Results';
+var TAB_PROJECTS = 'Project_Submissions';
 
 var HEAD_STUDENTS = ['Timestamp', 'Student ID', 'Student Name', 'Course', 'Registered On', 'Furthest Progress', 'Last Seen'];
 var HEAD_ACTIVITY = ['Timestamp', 'Student ID', 'Student Name', 'Unit', 'Topic', 'MCQ Score', 'Code Status', 'Progression'];
 var HEAD_DOUBTS   = ['Timestamp', 'Student ID', 'Student Name', 'Topic Context', 'Question', 'Answer'];
+var HEAD_TESTS    = ['Timestamp', 'Student ID', 'Student Name', 'Unit', 'Test', 'Score', 'Out Of', 'Percent', 'Result', 'Attempt', 'How It Ended'];
+var HEAD_PROJECTS = ['Timestamp', 'Student ID', 'Student Name', 'Unit', 'Project', 'Submission Link'];
 
 /* -------------------------------------------------------------- setup */
 
@@ -23,6 +27,8 @@ function setUp() {
   sheetFor(TAB_STUDENTS, HEAD_STUDENTS);
   sheetFor(TAB_ACTIVITY, HEAD_ACTIVITY);
   sheetFor(TAB_DOUBTS,   HEAD_DOUBTS);
+  sheetFor(TAB_TESTS,    HEAD_TESTS);
+  sheetFor(TAB_PROJECTS, HEAD_PROJECTS);
   SpreadsheetApp.getActive().toast('AbhyasLab tabs are ready.');
 }
 
@@ -59,6 +65,8 @@ function doPost(e) {
     switch (body.action) {
       case 'register': return json(handleRegister(body));
       case 'progress': return json(handleProgress(body));
+      case 'test':     return json(handleTest(body));
+      case 'project':  return json(handleProject(body));
       case 'ask':      return json(handleAsk(body));
       default:         return json({ ok: false, error: 'Unknown action: ' + body.action });
     }
@@ -99,18 +107,42 @@ function handleProgress(b) {
   ]);
 
   // keep the master row's furthest-progress column current
+  var mark = (b.progression && b.progression.indexOf('unlocked') > -1) ? b.progression : '';
+  touchStudent(b.studentId, mark);
+  return { ok: true };
+}
+
+function handleTest(b) {
+  sheetFor(TAB_TESTS, HEAD_TESTS).appendRow([
+    new Date(), b.studentId, b.studentName,
+    b.unit || '', b.testName || '',
+    b.score, b.total, (b.percent || 0) + '%',
+    b.result || '', b.attempt || 1, b.reason || ''
+  ]);
+  touchStudent(b.studentId, b.unit + ' test: ' + b.result + ' (' + b.score + '/' + b.total + ')');
+  return { ok: true };
+}
+
+function handleProject(b) {
+  sheetFor(TAB_PROJECTS, HEAD_PROJECTS).appendRow([
+    new Date(), b.studentId, b.studentName,
+    b.unit || '', b.projectName || '', b.link || ''
+  ]);
+  touchStudent(b.studentId, b.unit + ' project submitted');
+  return { ok: true };
+}
+
+/** Update a student's furthest-progress cell and last-seen time. */
+function touchStudent(studentId, progressText) {
   var sh   = sheetFor(TAB_STUDENTS, HEAD_STUDENTS);
   var rows = sh.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][1]).trim() === String(b.studentId).trim()) {
-      if (b.progression && b.progression.indexOf('unlocked') > -1) {
-        sh.getRange(i + 1, 6).setValue(b.progression);
-      }
+    if (String(rows[i][1]).trim() === String(studentId).trim()) {
+      if (progressText) sh.getRange(i + 1, 6).setValue(progressText);
       sh.getRange(i + 1, 7).setValue(new Date());
-      break;
+      return;
     }
   }
-  return { ok: true };
 }
 
 /* --------------------------------------------------------- AI doubts */
