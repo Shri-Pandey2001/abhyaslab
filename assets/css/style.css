@@ -969,3 +969,26 @@ button,input,textarea{font:inherit;color:inherit}
   border:1px solid var(--marigold);border-radius:var(--r-md);padding:1.3rem;
 }
 .submitted a{font-family:var(--mono);font-size:.88rem;color:var(--marigold);word-break:break-all}
+
+
+/* ==========================================================================
+   ROLES — faculty preview
+   ========================================================================== */
+.whotag{
+  font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  color:#221503;background:var(--marigold);
+  padding:.28rem .6rem;border-radius:99px;white-space:nowrap;
+}
+.whotag[hidden]{display:none}
+
+.guard--info{
+  background:rgba(40,160,143,.14);
+  border-left-color:var(--peacock);
+  color:#C6E4DF;
+}
+.guard--info svg{fill:var(--peacock)}
+.guard--info b{color:#E4F3F0}
+
+@media (max-width:900px){
+  .whotag{font-size:.6rem;padding:.24rem .45rem;letter-spacing:.08em}
+}
