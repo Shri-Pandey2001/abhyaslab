@@ -12,6 +12,12 @@ const esc = (s) => String(s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
+/* Task instructions are author-controlled course content. Escape everything,
+   then restore only a few harmless inline formatting tags. This makes text
+   such as <code>bool()</code> render as code instead of showing the tags. */
+const inlineMarkup = (s) => esc(s == null ? "" : s)
+  .replace(/&lt;(\/?)(code|strong|em)&gt;/gi, "<$1$2>");
+
 /* trailing spaces and blank end-lines shouldn't fail a student */
 const tidy = (s) => String(s == null ? "" : s)
   .replace(/\r\n/g, "\n")
@@ -304,7 +310,13 @@ function startApp() {
   $("#app").hidden  = false;
   $("#whoName").textContent = student.name;
   $("#whoId").textContent   = student.id;
-  $("#railUnitTitle").textContent = COURSE[0].unitTitle;
+  const firstUnit = COURSE[0];
+  const firstRailHeader = $(".rail__unit");
+  if (firstUnit && firstRailHeader) {
+    const eyebrow = $(".rail__eyebrow", firstRailHeader);
+    if (eyebrow) eyebrow.textContent = firstUnit.unit;
+    $("#railUnitTitle").textContent = firstUnit.unitTitle;
+  }
   $("#askBtn").hidden = !CONFIG.aiEnabled;
   const tag = $("#whoTag");
   if (tag) tag.hidden = !isFaculty();
@@ -335,16 +347,43 @@ const KIND_LABEL = { topic: "Topic", test: "Test", project: "Project" };
 
 function paintRail() {
   let lastUnit = null;
+  const unitMeta = new Map(COURSE.map(u => [u.unit, u]));
+
+  const statsFor = (unitName) => {
+    const items = STEPS.filter(step => step.unit === unitName);
+    const done = items.filter(step => progress[step.id] && progress[step.id].done).length;
+    return { done, total: items.length, percent: items.length ? done / items.length * 100 : 0 };
+  };
+
   $("#railList").innerHTML = STEPS.map((s, i) => {
     const r = progress[s.id];
     const done = r && r.done;
     const open = isUnlocked(i);
     const cur  = view.name !== "dashboard" && view.step === i;
-    const cls  = ["tnode", done ? "is-done" : (open ? "is-open" : "is-locked"), cur ? "is-current" : ""].join(" ");
+    const next = STEPS[i + 1];
+    const unitLast = !next || next.unit !== s.unit;
+    const cls  = [
+      "tnode",
+      done ? "is-done" : (open ? "is-open" : "is-locked"),
+      cur ? "is-current" : "",
+      unitLast ? "is-unit-last" : ""
+    ].join(" ");
     const glyph = done ? "&#10003;" : (open ? (s.kind === "topic" ? s.no : (s.kind === "test" ? "T" : "P")) : "&#128274;");
     const kicker = s.kind === "topic" ? `${esc(s.unit)} &middot; Topic ${s.no}` : `${esc(s.unit)} &middot; ${KIND_LABEL[s.kind]}`;
-    const divider = (lastUnit !== null && lastUnit !== s.unit) ? `<li class="rail__div">${esc(s.unit)}</li>` : "";
+
+    let divider = "";
+    if (lastUnit !== null && lastUnit !== s.unit) {
+      const meta = unitMeta.get(s.unit) || { unit: s.unit, unitTitle: s.unit };
+      const us = statsFor(s.unit);
+      divider = `<li class="rail__unit-break" aria-label="${esc(meta.unit)}">
+        <p class="rail__eyebrow">${esc(meta.unit)}</p>
+        <h3 class="rail__title">${esc(meta.unitTitle)}</h3>
+        <div class="rail__meter"><i style="width:${us.percent}%"></i></div>
+        <p class="rail__count">${us.done} of ${us.total} complete</p>
+      </li>`;
+    }
     lastUnit = s.unit;
+
     return `${divider}<li class="${cls}">
       <span class="tnode__stamp" aria-hidden="true"><span>${glyph}</span></span>
       <button class="tnode__btn" data-goto="${i}" ${open ? "" : "disabled"}>
@@ -354,9 +393,10 @@ function paintRail() {
     </li>`;
   }).join("");
 
-  const n = doneCount();
-  $("#railMeterFill").style.width = (n / STEPS.length * 100) + "%";
-  $("#railCount").textContent = `${n} of ${STEPS.length} complete`;
+  const first = COURSE[0];
+  const firstStats = first ? statsFor(first.unit) : { done: 0, total: 0, percent: 0 };
+  $("#railMeterFill").style.width = firstStats.percent + "%";
+  $("#railCount").textContent = `${firstStats.done} of ${firstStats.total} complete`;
 }
 
 $("#railList").addEventListener("click", (e) => {
@@ -626,16 +666,38 @@ function paintTasks(s, r) {
 
   host.innerHTML = t.tasks.map(task => {
     const passed = !!r.tasks[task.id];
+    const levelBadge = task.level
+      ? `<span class="task__level">${esc(task.level)}</span>`
+      : "";
+    const hintHtml = (task.hints || []).length
+      ? `<div class="task__hints">${task.hints.map((hint, hintIndex) =>
+          `<details class="task__hint">
+             <summary>Hint ${hintIndex + 1}</summary>
+             <p>${inlineMarkup(hint)}</p>
+           </details>`).join("")}</div>`
+      : "";
+
     if (task.kind === "confirm") {
-      return `<div class="confirm">
-        <input type="checkbox" id="c_${task.id}" data-confirm="${task.id}" ${passed ? "checked" : ""}>
-        <label for="c_${task.id}">${task.label}</label>
-      </div>`;
+      return `<section class="task task--confirm ${passed ? "is-passed" : ""}">
+        <header class="task__head">
+          ${levelBadge}
+          <h4 class="task__t">${esc(task.title || "Practical activity")}<span class="task__pill">${passed ? "Completed" : "Not completed"}</span></h4>
+          ${task.brief ? `<p class="task__b">${inlineMarkup(task.brief)}</p>` : ""}
+          ${hintHtml}
+        </header>
+        <div class="confirm">
+          <input type="checkbox" id="c_${task.id}" data-confirm="${task.id}" ${passed ? "checked" : ""}>
+          <label for="c_${task.id}">${inlineMarkup(task.label || "I completed this activity.")}</label>
+        </div>
+      </section>`;
     }
+
     return `<section class="task ${passed ? "is-passed" : ""}" data-task="${task.id}">
       <header class="task__head">
+        ${levelBadge}
         <h4 class="task__t">${esc(task.title)}<span class="task__pill">${passed ? "Passed" : "Not run yet"}</span></h4>
-        <p class="task__b">${esc(task.brief)}</p>
+        <p class="task__b">${inlineMarkup(task.brief)}</p>
+        ${hintHtml}
       </header>
       <div class="editor">
         <div class="editor__gutter" data-gutter></div>
@@ -807,26 +869,51 @@ function evaluate(task, source, stdout) {
         break;
       case "stdoutRegex":
         ok = new RegExp(c.pattern, c.flags || "m").test(tidy(stdout));
-        label = c.message || "Output has the right shape";
+        label = c.message || "Output matches the required pattern";
         break;
       case "stdoutMinLines":
         ok = tidy(stdout).split("\n").filter(l => l.trim()).length >= c.value;
         label = c.message || `Prints at least ${c.value} lines`;
         break;
+      case "stdoutLineCount":
+        ok = tidy(stdout).split("\n").filter(l => l.trim()).length === c.value;
+        label = c.message || `Prints exactly ${c.value} non-empty lines`;
+        break;
+      case "stdoutNumberEquals": {
+        const actual = Number(tidy(stdout));
+        const expected = Number(c.value);
+        const tolerance = Number.isFinite(Number(c.tolerance)) ? Number(c.tolerance) : 1e-9;
+        ok = Number.isFinite(actual) && Number.isFinite(expected) && Math.abs(actual - expected) <= tolerance;
+        label = c.message || `Numerical output equals ${c.value}`;
+        break;
+      }
       case "sourceIncludes":
         ok = source.includes(c.value);
         label = c.message || `Code uses ${c.value}`;
         break;
+      case "sourceNotIncludes":
+        ok = !source.includes(c.value);
+        label = c.message || `Code does not use ${c.value}`;
+        break;
       case "sourceRegex":
-        ok = new RegExp(c.pattern, "m").test(source);
+        ok = new RegExp(c.pattern, c.flags || "m").test(source);
         label = c.message || "Code matches the required pattern";
         break;
+      case "sourceNotRegex":
+        ok = !new RegExp(c.pattern, c.flags || "m").test(source);
+        label = c.message || "Code avoids the blocked pattern";
+        break;
       case "sourceMinMatches":
-        ok = (source.match(new RegExp(c.pattern, "gm")) || []).length >= c.count;
+        ok = (source.match(new RegExp(c.pattern, c.flags || "gm")) || []).length >= c.count;
         label = c.message || `Code contains at least ${c.count} of the required pattern`;
         break;
+      case "sourceMinNonEmptyLines":
+        ok = source.split("\n").filter(l => l.trim()).length >= c.value;
+        label = c.message || `Code contains at least ${c.value} non-empty lines`;
+        break;
       default:
-        ok = true; label = "Checked";
+        ok = true;
+        label = "Checked";
     }
     return { ok, label };
   });
