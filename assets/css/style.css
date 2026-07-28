@@ -638,3 +638,147 @@ button,input,textarea{font:inherit;color:inherit}
   .rail,.topbar,.ask,.askpanel,.taskbar{display:none}
   body{background:#fff;color:#000}
 }
+
+/* ==========================================================================
+   LEARNING WIDGETS
+   These live inside .paper (the light chalk surface), so everything here is
+   styled for a light background. Drop them straight into a topic's notes.
+   ========================================================================== */
+
+/* --- inline figures ------------------------------------------------------ */
+.paper .fig{display:block;width:100%;height:auto;margin:1.4rem 0}
+.paper .fig text{font-family:var(--display);font-size:13px;fill:var(--ink)}
+.paper .fig .mono{font-family:var(--mono);font-size:12.5px}
+.paper .fig .lbl{font-size:11px;fill:#6A7089;letter-spacing:.04em;text-transform:uppercase}
+.paper .fig .box{fill:#fff;stroke:var(--ink);stroke-width:1.6}
+.paper .fig .box--dark{fill:var(--indigo-900);stroke:none}
+.paper .fig .box--dark text,.paper .fig text.on-dark{fill:#D8D5C9}
+.paper .fig .arrow{stroke:var(--marigold-deep);stroke-width:2;fill:none}
+.paper .fig .accent{fill:var(--marigold-deep)}
+.paper .fig .good{stroke:#1E7F72;fill:none;stroke-width:1.8}
+.paper .figcap{
+  display:block;margin:-.6rem 0 1.4rem;font-family:var(--display);
+  font-size:.8rem;color:#6A7089;text-align:center;
+}
+
+/* --- shared widget frame ------------------------------------------------- */
+.paper .w{
+  border:1.5px solid var(--chalk-dim);
+  border-radius:var(--r-md);
+  background:#fff;
+  padding:1.1rem 1.2rem;
+  margin:1.6rem 0;
+  font-family:var(--display);
+}
+.paper .w__k{
+  display:inline-flex;align-items:center;gap:.4rem;
+  font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--marigold-deep);font-weight:700;margin-bottom:.6rem;
+}
+.paper .w__k::before{
+  content:"";width:.5rem;height:.5rem;background:var(--marigold);
+  transform:rotate(45deg);border-radius:1px;
+}
+.paper .w__q{font-size:1rem;font-weight:700;margin:0 0 .7rem;letter-spacing:-.01em}
+.paper .w pre{margin:.6rem 0 .9rem}
+.paper .w__why{
+  margin:.85rem 0 0;padding:.7rem .85rem;
+  background:rgba(242,160,61,.14);border-left:3px solid var(--marigold);
+  border-radius:0 var(--r-sm) var(--r-sm) 0;
+  font-family:var(--prose);font-size:.98rem;
+  display:none;
+}
+.paper .w__why.is-shown{display:block}
+
+/* --- guess the output ---------------------------------------------------- */
+.paper .w-guess__opts{display:flex;flex-wrap:wrap;gap:.5rem}
+.paper .w-guess__opts button{
+  flex:1 1 8rem;padding:.6rem .8rem;
+  border:1.5px solid var(--chalk-dim);border-radius:var(--r-sm);
+  background:#fff;color:var(--ink);
+  font-family:var(--mono);font-size:.88rem;cursor:pointer;
+  transition:border-color .15s ease,background .15s ease;
+}
+.paper .w-guess__opts button:hover:not([disabled]){border-color:var(--marigold);background:rgba(242,160,61,.08)}
+.paper .w-guess__opts button[disabled]{cursor:default}
+.paper .w-guess__opts button.is-right{border-color:#1E7F72;background:rgba(40,160,143,.16);font-weight:700}
+.paper .w-guess__opts button.is-wrong{border-color:var(--madder);background:rgba(207,74,60,.14)}
+
+/* --- reveal cards -------------------------------------------------------- */
+.paper .w-flip{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:.7rem;margin:1.4rem 0;
+}
+.paper .w-flip__card{
+  position:relative;min-height:6.5rem;
+  border:1.5px solid var(--chalk-dim);border-radius:var(--r-md);
+  background:#fff;padding:.9rem;cursor:pointer;text-align:left;
+  font-family:var(--display);color:var(--ink);
+  display:flex;align-items:center;
+  transition:border-color .15s ease,background .2s ease;
+}
+.paper .w-flip__card:hover{border-color:var(--marigold)}
+.paper .w-flip__card::after{
+  content:"tap";position:absolute;right:.7rem;bottom:.5rem;
+  font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:#9AA0B4;
+}
+.paper .w-flip__card.is-open{background:var(--indigo-900);border-color:var(--indigo-900);color:#EFEDE4}
+.paper .w-flip__card.is-open::after{content:"";}
+.paper .w-flip__front{font-weight:700;font-size:.95rem;line-height:1.35}
+.paper .w-flip__back{font-family:var(--prose);font-size:.95rem;line-height:1.45;display:none}
+.paper .w-flip__back code{background:rgba(255,255,255,.14);color:var(--marigold)}
+.paper .w-flip__card.is-open .w-flip__front{display:none}
+.paper .w-flip__card.is-open .w-flip__back{display:block}
+
+/* --- timeline ------------------------------------------------------------ */
+.paper .w-time{margin:1.5rem 0;padding-left:1.4rem;border-left:2px solid var(--chalk-dim)}
+.paper .w-time__i{position:relative;padding:0 0 1.1rem}
+.paper .w-time__i::before{
+  content:"";position:absolute;left:-1.92rem;top:.35rem;
+  width:.7rem;height:.7rem;background:var(--marigold);
+  transform:rotate(45deg);border-radius:1px;
+}
+.paper .w-time__i:last-child{padding-bottom:0}
+.paper .w-time__i b{
+  display:block;font-family:var(--mono);font-size:.85rem;
+  color:var(--marigold-deep);letter-spacing:.02em;
+}
+.paper .w-time__i span{font-family:var(--prose);font-size:1rem;line-height:1.5}
+
+/* --- match the pairs ----------------------------------------------------- */
+.paper .w-match__grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.paper .w-match__col{display:flex;flex-direction:column;gap:.5rem}
+.paper .w-match button{
+  padding:.6rem .7rem;text-align:left;
+  border:1.5px solid var(--chalk-dim);border-radius:var(--r-sm);
+  background:#fff;color:var(--ink);cursor:pointer;
+  font-family:var(--display);font-size:.88rem;line-height:1.35;
+  transition:border-color .13s ease,background .13s ease,transform .13s ease;
+}
+.paper .w-match button code{font-size:.85em}
+.paper .w-match button:hover:not([disabled]){border-color:var(--marigold)}
+.paper .w-match button.is-pick{border-color:var(--marigold);background:rgba(242,160,61,.16);transform:translateX(3px)}
+.paper .w-match button.is-right{border-color:#1E7F72;background:rgba(40,160,143,.15);opacity:.75;cursor:default}
+.paper .w-match button.is-wrong{border-color:var(--madder);background:rgba(207,74,60,.14)}
+.paper .w-match__hint{margin:.7rem 0 0;font-size:.82rem;color:#6A7089}
+
+/* --- spot the mistake ---------------------------------------------------- */
+.paper .w-spot__line{
+  display:flex;flex-wrap:wrap;gap:.25rem;align-items:center;
+  background:var(--indigo-900);padding:.9rem;border-radius:var(--r-sm);
+}
+.paper .w-spot__line button{
+  border:1.5px dashed transparent;border-radius:4px;
+  background:none;color:#D8D5C9;
+  font-family:var(--mono);font-size:.95rem;
+  padding:.2rem .3rem;cursor:pointer;
+}
+.paper .w-spot__line button:hover:not([disabled]){border-color:#6E79A3}
+.paper .w-spot__line button.is-right{border-color:#3FD0B8;border-style:solid;background:rgba(40,160,143,.3);color:#fff}
+.paper .w-spot__line button.is-wrong{border-color:var(--madder);border-style:solid;background:rgba(207,74,60,.3)}
+.paper .w-spot__line button[disabled]{cursor:default}
+
+@media (max-width:560px){
+  .paper .w-match__grid{grid-template-columns:1fr}
+  .paper .w-guess__opts button{flex:1 1 100%}
+}
