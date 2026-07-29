@@ -1,963 +1,2122 @@
 /**
- * AbhyasLab — backend and faculty console
+ * AbhyasLab — secure backend, progress database and faculty console
  *
- * SETUP (once)
- *   1. Paste this whole file into Extensions → Apps Script on your Sheet.
- *   2. Save, then reload the Sheet. An "AbhyasLab" menu appears.
- *   3. AbhyasLab → Set up / repair tabs.
- *   4. Deploy → New deployment → Web app → Execute as: Me, Access: Anyone.
+ * This is intentionally one Apps Script file. Paste the entire file into
+ * Extensions → Apps Script for the AbhyasLab Google Sheet.
  *
- * AFTER ANY EDIT: Deploy → Manage deployments → pencil → Version: New version → Deploy.
+ * FIRST SETUP
+ * 1. Save this file.
+ * 2. Run setUp() once and approve permissions.
+ * 3. Use AbhyasLab → Add / update faculty account to create faculty access.
+ * 4. Deploy as a Web app: Execute as Me, access Anyone.
+ * 5. Put the deployment URL in assets/js/config.js.
  *
- * Script Properties (Project Settings → Script Properties):
- *   GEMINI_API_KEY   only needed for the "Ask a doubt" panel
- *   GEMINI_MODEL     optional, defaults to gemini-2.5-flash
+ * Script Properties (Project Settings → Script Properties)
+ * GEMINI_API_KEY       Optional. Needed for doubts and AI project review.
+ * GEMINI_MODEL         Optional. Defaults to gemini-2.5-flash.
+ * PROJECT_FOLDER_ID    Optional. If blank, a Drive folder is created.
+ * SUPERADMIN_IDS       Optional comma-separated faculty IDs that may see all sections.
  */
 
-/* ====================================================================== */
-/*  TABS                                                                  */
-/* ====================================================================== */
+/* ========================================================================== */
+/* CONFIGURATION                                                              */
+/* ========================================================================== */
 
-var TAB_STUDENTS  = 'Students_Master';
-var TAB_ACTIVITY  = 'Activity_Log';
-var TAB_TESTS     = 'Test_Results';
-var TAB_PROJECTS  = 'Project_Submissions';
-var TAB_DOUBTS    = 'Doubt_Log';
-var TAB_SESSIONS  = 'Session_Log';
-var TAB_INTEGRITY = 'Integrity_Log';
-var TAB_BLOCK     = 'Blocklist';
-var TAB_OVERVIEW  = 'Class_Overview';
-var TAB_DASH      = 'Dashboard';
-var TAB_REPORT    = 'Student_Report';
+var APP_NAME = 'AbhyasLab';
+var SESSION_HOURS = 24;
+var INACTIVE_DAYS = 15;
+var MAX_PROJECT_BYTES = 5 * 1024 * 1024;
+var DASHBOARD_REFRESH_MINUTES = 5;
+
+var TAB_MASTER     = 'Students_Master';
+var TAB_MANAGEMENT = 'Student_Management';
+var TAB_PROGRESS   = 'Student_Progress';
+var TAB_TESTS      = 'Test_Results';
+var TAB_PROJECTS   = 'Project_Submissions';
+var TAB_DOUBTS     = 'Doubt_Log';
+var TAB_SESSIONS   = 'Session_Log';
+var TAB_INTEGRITY  = 'Integrity_Log';
+var TAB_DASHBOARD  = 'Dashboard';
+var TAB_REPORT     = 'Student_Report';
+var TAB_SYSTEM     = 'System_Data';
+var TAB_ARCHIVE    = 'Archive_Activity_Log';
+
+var LEGACY_ACTIVITY = 'Activity_Log';
+var LEGACY_BLOCK    = 'Blocklist';
+var LEGACY_OVERVIEW = 'Class_Overview';
 
 var HEAD = {};
-HEAD[TAB_STUDENTS]  = ['Timestamp', 'Student ID', 'Student Name', 'Course', 'Registered On', 'Furthest Progress', 'Last Seen'];
-HEAD[TAB_ACTIVITY]  = ['Timestamp', 'Student ID', 'Student Name', 'Unit', 'Topic', 'MCQ Score', 'Code Status', 'Progression'];
-HEAD[TAB_TESTS]     = ['Timestamp', 'Student ID', 'Student Name', 'Unit', 'Test', 'Score', 'Out Of', 'Percent', 'Result', 'Attempt', 'How It Ended'];
-HEAD[TAB_PROJECTS]  = ['Timestamp', 'Student ID', 'Student Name', 'Unit', 'Project', 'Submission Link'];
-HEAD[TAB_DOUBTS]    = ['Timestamp', 'Student ID', 'Student Name', 'Topic Context', 'Question', 'Answer'];
-HEAD[TAB_SESSIONS]  = ['Session ID', 'Student ID', 'Student Name', 'Started', 'Last Seen', 'Minutes', 'Last Screen'];
-HEAD[TAB_INTEGRITY] = ['Timestamp', 'Student ID', 'Student Name', 'Event', 'Where', 'Detail'];
-HEAD[TAB_BLOCK]     = ['Student ID', 'Blocked On', 'Reason'];
+HEAD[TAB_MASTER] = [
+  'Created At', 'Account ID', 'Role', 'Full Name', 'Email', 'Section',
+  'Managed Sections', 'Status', 'Course', 'Registered On', 'Last Seen',
+  'Current Unit', 'Current Step', 'PIN Salt', 'PIN Hash', 'Auth Token Hash',
+  'Auth Expires', 'Last Login', 'Profile Complete', 'Blocked On', 'Blocked By',
+  'Notes'
+];
+HEAD[TAB_MANAGEMENT] = [
+  'Student ID', 'Student Name', 'Email', 'Section', 'Status', 'Registered On',
+  'Last Active', 'Days Inactive', 'Current Unit', 'Current Step', 'Steps Done',
+  'Steps Total', 'Step Progress %', 'Weighted Progress %', 'Unit Progress',
+  'Test Summary', 'Project Summary', 'Minutes', 'Sessions', 'Doubts',
+  'Integrity Flags', 'Faculty Owner(s)', 'Action', 'Action Unit', 'Confirmation',
+  'Last Action Result'
+];
+HEAD[TAB_PROGRESS] = [
+  'Updated At', 'Student ID', 'Student Name', 'Email', 'Section', 'Unit',
+  'Step ID', 'Step Type', 'Step Name', 'MCQ Best', 'MCQ Total', 'MCQ %',
+  'Tasks Completed', 'Tasks Total', 'Task IDs JSON', 'Status', 'Started At',
+  'Completed At', 'Last Event'
+];
+HEAD[TAB_TESTS] = [
+  'Timestamp', 'Student ID', 'Student Name', 'Email', 'Section', 'Unit', 'Test',
+  'Score', 'Out Of', 'Percent', 'Result', 'Attempt', 'How It Ended',
+  'Reset At', 'Reset By'
+];
+HEAD[TAB_PROJECTS] = [
+  'Submitted At', 'Student ID', 'Student Name', 'Email', 'Section', 'Unit',
+  'Project', 'Submission Type', 'Submission URL', 'Drive File ID', 'File Name',
+  'AI Suggested Score', 'AI Summary', 'AI Strengths', 'AI Issues',
+  'AI Improvements', 'AI Review Status', 'Approved Score', 'Faculty Feedback',
+  'Approved By', 'Approved At', 'Submission Status', 'Reset At', 'Reset By'
+];
+HEAD[TAB_DOUBTS] = [
+  'Timestamp', 'Student ID', 'Student Name', 'Topic Context', 'Question', 'Answer'
+];
+HEAD[TAB_SESSIONS] = [
+  'Session ID', 'Student ID', 'Student Name', 'Started', 'Last Seen', 'Minutes',
+  'Last Screen'
+];
+HEAD[TAB_INTEGRITY] = [
+  'Timestamp', 'Student ID', 'Student Name', 'Event', 'Where', 'Detail'
+];
+HEAD[TAB_SYSTEM] = ['Type', 'Key', 'Value', 'Owner ID', 'Active', 'Updated At', 'Notes'];
 
-var GREEN = '#28A08F', AMBER = '#F2A03D', RED = '#CF4A3C', INK = '#141F3E', PAPER = '#EFEDE4';
+var INK = '#141F3E';
+var PAPER = '#EFEDE4';
+var GREEN = '#28A08F';
+var AMBER = '#F2A03D';
+var RED = '#CF4A3C';
+var BLUE = '#3957A7';
 
-/* ====================================================================== */
-/*  MENU                                                                  */
-/* ====================================================================== */
+var ACTIONS = [
+  'No Action', 'View Report', 'Block', 'Unblock', 'Reset Test', 'Reset Project',
+  'Delete Permanently'
+];
+
+/* ========================================================================== */
+/* MENU AND SETUP                                                             */
+/* ========================================================================== */
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('AbhyasLab')
-    .addItem('Refresh dashboard & overview', 'refreshAll')
+    .addItem('Refresh dashboard and student views', 'refreshAll')
+    .addItem('Open selected student report', 'openSelectedStudentReport')
     .addSeparator()
-    .addItem('Open a student report…', 'promptStudentReport')
-    .addItem('Rebuild report for selected student', 'buildStudentReport')
+    .addItem('Add / update faculty account', 'addFacultyPrompt')
+    .addItem('Create / assign a section', 'createSectionPrompt')
     .addSeparator()
-    .addItem('Delete a student (wipes all their data)', 'deleteStudentPrompt')
-    .addItem('Unblock a student', 'unblockPrompt')
+    .addItem('Block selected student', 'blockSelectedStudent')
+    .addItem('Unblock selected student', 'unblockSelectedStudent')
+    .addItem('Reset selected student test', 'resetSelectedStudentTest')
+    .addItem('Reset selected student project', 'resetSelectedStudentProject')
+    .addItem('Delete selected student permanently', 'deleteSelectedStudent')
     .addSeparator()
-    .addItem('Export class overview as CSV', 'exportOverviewCsv')
-    .addItem('Set up / repair tabs', 'setUp')
+    .addItem('Set up / repair / migrate sheets', 'setUp')
     .addToUi();
 }
 
-/** Rebuild every faculty-facing view. Safe to run any time. */
-function refreshAll() {
-  setUp();
-  var data = gather();
-  buildOverview(data);
-  buildDashboard(data);
-  buildStudentReport();
-  SpreadsheetApp.getActive().toast('Dashboard and overview refreshed.', 'AbhyasLab', 5);
-}
-
-/** Run this once, and again any time a tab gets deleted by accident. */
 function setUp() {
-  [TAB_STUDENTS, TAB_ACTIVITY, TAB_TESTS, TAB_PROJECTS, TAB_DOUBTS,
-   TAB_SESSIONS, TAB_INTEGRITY, TAB_BLOCK].forEach(function (name) {
-    sheetFor(name, HEAD[name]);
-  });
-  [TAB_DASH, TAB_OVERVIEW, TAB_REPORT].forEach(function (name) {
-    var ss = SpreadsheetApp.getActive();
-    if (!ss.getSheetByName(name)) ss.insertSheet(name);
-  });
-  ensureReportPicker();
+  var lock = LockService.getDocumentLock();
+  lock.waitLock(30000);
+  try {
+    migrateLegacySheets_();
+    ensureCoreSheets_();
+    seedMissingAccountsFromLogs_();
+    migrateLegacyActivity_();
+    ensureManagementValidation_();
+    ensureStudentReportPicker_();
+    ensureTriggers_();
+    refreshAll();
+    SpreadsheetApp.getActive().toast(
+      'Database, dashboard, progress table and faculty controls are ready.',
+      APP_NAME,
+      8
+    );
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-function sheetFor(name, headers) {
+function ensureCoreSheets_() {
+  sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]);
+  sheetFor_(TAB_MANAGEMENT, HEAD[TAB_MANAGEMENT]);
+  sheetFor_(TAB_PROGRESS, HEAD[TAB_PROGRESS]);
+  sheetFor_(TAB_TESTS, HEAD[TAB_TESTS]);
+  sheetFor_(TAB_PROJECTS, HEAD[TAB_PROJECTS]);
+  sheetFor_(TAB_DOUBTS, HEAD[TAB_DOUBTS]);
+  sheetFor_(TAB_SESSIONS, HEAD[TAB_SESSIONS]);
+  sheetFor_(TAB_INTEGRITY, HEAD[TAB_INTEGRITY]);
+  sheetFor_(TAB_SYSTEM, HEAD[TAB_SYSTEM]);
+  blankSheet_(TAB_DASHBOARD);
+  blankSheet_(TAB_REPORT);
+
+  var master = SpreadsheetApp.getActive().getSheetByName(TAB_MASTER);
+  if (master) {
+    master.hideColumns(14, 4); // PIN salt/hash and token details.
+    master.setFrozenRows(1);
+  }
+
+  var system = SpreadsheetApp.getActive().getSheetByName(TAB_SYSTEM);
+  if (system && !system.isSheetHidden()) system.hideSheet();
+}
+
+function sheetFor_(name, headers) {
   var ss = SpreadsheetApp.getActive();
   var sh = ss.getSheetByName(name);
-  if (!sh) {
-    sh = ss.insertSheet(name);
-    sh.appendRow(headers);
-    sh.getRange(1, 1, 1, headers.length)
-      .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-    sh.setFrozenRows(1);
-  }
+  if (!sh) sh = ss.insertSheet(name);
+
+  var current = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0] : [];
+  if (!sameHeaders_(current, headers)) upgradeSheetHeaders_(sh, name, headers, current);
+
+  styleHeader_(sh, headers.length);
   return sh;
 }
 
-/* ====================================================================== */
-/*  WEB APP                                                               */
-/* ====================================================================== */
-
-function doGet() {
-  return json({ ok: true, service: 'AbhyasLab', message: 'Backend is live.' });
+function blankSheet_(name) {
+  var ss = SpreadsheetApp.getActive();
+  return ss.getSheetByName(name) || ss.insertSheet(name);
 }
 
-function doPost(e) {
-  var body;
-  try { body = JSON.parse(e.postData.contents); }
-  catch (err) { return json({ ok: false, error: 'Request body was not valid JSON.' }); }
+function styleHeader_(sh, width) {
+  if (!width) return;
+  sh.getRange(1, 1, 1, width)
+    .setFontWeight('bold')
+    .setBackground(INK)
+    .setFontColor(PAPER)
+    .setVerticalAlignment('middle');
+  sh.setFrozenRows(1);
+}
 
-  try {
-    switch (body.action) {
-      case 'check':     return json(handleCheck(body));
-      case 'register':  return json(handleRegister(body));
-      case 'progress':  return json(handleProgress(body));
-      case 'test':      return json(handleTest(body));
-      case 'project':   return json(handleProject(body));
-      case 'heartbeat': return json(handleHeartbeat(body));
-      case 'flag':      return json(handleFlag(body));
-      case 'ask':       return json(handleAsk(body));
-      default:          return json({ ok: false, error: 'Unknown action: ' + body.action });
+function sameHeaders_(a, b) {
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < b.length; i++) if (String(a[i]) !== String(b[i])) return false;
+  return true;
+}
+
+function upgradeSheetHeaders_(sh, name, headers, oldHeaders) {
+  var lastRow = sh.getLastRow();
+  var oldValues = lastRow > 1 && oldHeaders.length
+    ? sh.getRange(2, 1, lastRow - 1, oldHeaders.length).getValues()
+    : [];
+
+  if (name === TAB_MASTER && oldHeaders.indexOf('Student ID') > -1) {
+    var map = headerMap_(oldHeaders);
+    var converted = oldValues.filter(function (r) { return r[map['Student ID']] !== ''; }).map(function (r) {
+      var id = String(r[map['Student ID']] || '').trim();
+      var role = /^f/i.test(id) ? 'Faculty' : 'Student';
+      return [
+        valueBy_(r, map, 'Timestamp') || new Date(), id, role,
+        valueBy_(r, map, 'Student Name') || '', '', '', '',
+        'Active', valueBy_(r, map, 'Course') || 'Python Programming',
+        valueBy_(r, map, 'Registered On') || valueBy_(r, map, 'Timestamp') || new Date(),
+        valueBy_(r, map, 'Last Seen') || '', '',
+        valueBy_(r, map, 'Furthest Progress') || '', '', '', '', '', '',
+        false, '', '', 'Migrated from the earlier Students_Master format.'
+      ];
+    });
+    sh.clear();
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    if (converted.length) sh.getRange(2, 1, converted.length, headers.length).setValues(converted);
+    return;
+  }
+
+  if (name === TAB_TESTS && oldHeaders.indexOf('Student ID') > -1 && oldHeaders.length < headers.length) {
+    var tm = headerMap_(oldHeaders);
+    var tests = oldValues.filter(function (r) { return valueBy_(r, tm, 'Student ID'); }).map(function (r) {
+      return [
+        valueBy_(r, tm, 'Timestamp'), valueBy_(r, tm, 'Student ID'),
+        valueBy_(r, tm, 'Student Name'), '', '', valueBy_(r, tm, 'Unit'),
+        valueBy_(r, tm, 'Test'), valueBy_(r, tm, 'Score'), valueBy_(r, tm, 'Out Of'),
+        normalPercent_(valueBy_(r, tm, 'Percent')), valueBy_(r, tm, 'Result'),
+        valueBy_(r, tm, 'Attempt'), valueBy_(r, tm, 'How It Ended'), '', ''
+      ];
+    });
+    sh.clear();
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    if (tests.length) sh.getRange(2, 1, tests.length, headers.length).setValues(tests);
+    return;
+  }
+
+  if (name === TAB_PROJECTS && oldHeaders.indexOf('Student ID') > -1 && oldHeaders.length < headers.length) {
+    var pm = headerMap_(oldHeaders);
+    var projects = oldValues.filter(function (r) { return valueBy_(r, pm, 'Student ID'); }).map(function (r) {
+      return [
+        valueBy_(r, pm, 'Timestamp'), valueBy_(r, pm, 'Student ID'),
+        valueBy_(r, pm, 'Student Name'), '', '', valueBy_(r, pm, 'Unit'),
+        valueBy_(r, pm, 'Project'), 'Link', valueBy_(r, pm, 'Submission Link'),
+        '', '', '', '', '', '', '', 'Not Reviewed', '', '', '', '', 'Submitted', '', ''
+      ];
+    });
+    sh.clear();
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    if (projects.length) sh.getRange(2, 1, projects.length, headers.length).setValues(projects);
+    return;
+  }
+
+  // Unknown or empty sheet: preserve it by moving its old content below the new header.
+  sh.clear();
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+}
+
+function migrateLegacySheets_() {
+  var ss = SpreadsheetApp.getActive();
+  var activity = ss.getSheetByName(LEGACY_ACTIVITY);
+  if (activity && !ss.getSheetByName(TAB_ARCHIVE)) activity.setName(TAB_ARCHIVE);
+  else if (activity && ss.getSheetByName(TAB_ARCHIVE)) ss.deleteSheet(activity);
+
+  var block = ss.getSheetByName(LEGACY_BLOCK);
+  if (block) {
+    var rows = block.getDataRange().getValues();
+    for (var i = 1; i < rows.length; i++) {
+      if (rows[i][0]) setMasterStatus_(rows[i][0], 'Blocked', rows[i][1] || new Date(), 'Legacy Blocklist');
     }
-  } catch (err) {
-    return json({ ok: false, error: String(err) });
+    ss.deleteSheet(block);
+  }
+
+  var overview = ss.getSheetByName(LEGACY_OVERVIEW);
+  if (overview) ss.deleteSheet(overview);
+}
+
+function migrateLegacyActivity_() {
+  var ss = SpreadsheetApp.getActive();
+  var archive = ss.getSheetByName(TAB_ARCHIVE);
+  if (!archive || archive.getLastRow() < 2) return;
+
+  var marker = systemValue_('Migration', 'LegacyActivityDone');
+  if (String(marker).toLowerCase() === 'true') return;
+
+  var vals = archive.getDataRange().getValues();
+  var head = headerMap_(vals[0]);
+  var grouped = {};
+
+  for (var i = 1; i < vals.length; i++) {
+    var r = vals[i];
+    var id = valueBy_(r, head, 'Student ID');
+    var topic = valueBy_(r, head, 'Topic');
+    if (!id || !topic) continue;
+    var unit = valueBy_(r, head, 'Unit') || 'Legacy';
+    var key = norm_(id) + '|' + norm_(unit) + '|' + norm_(topic);
+    if (!grouped[key]) grouped[key] = {
+      id: id, name: valueBy_(r, head, 'Student Name') || '', unit: unit, topic: topic,
+      score: 0, total: 0, tasks: {}, done: false, updated: valueBy_(r, head, 'Timestamp') || new Date()
+    };
+    var g = grouped[key];
+    var score = parseScore_(valueBy_(r, head, 'MCQ Score'));
+    if (score.total && (!g.total || score.score / score.total > g.score / g.total)) {
+      g.score = score.score; g.total = score.total;
+    }
+    var code = String(valueBy_(r, head, 'Code Status') || '');
+    if (code.indexOf('Passed:') === 0) g.tasks[code.substring(7).trim()] = true;
+    var prog = String(valueBy_(r, head, 'Progression') || '');
+    if (prog.indexOf('unlocked') > -1 || prog === 'Unit complete') g.done = true;
+    if (valueBy_(r, head, 'Timestamp') instanceof Date) g.updated = valueBy_(r, head, 'Timestamp');
+  }
+
+  Object.keys(grouped).forEach(function (key) {
+    var g = grouped[key];
+    var account = accountById_(g.id);
+    if (!account) return;
+    upsertProgress_({
+      account: account, unit: g.unit,
+      stepId: 'legacy:' + slug_(g.unit + '-' + g.topic),
+      stepType: 'Topic', stepName: g.topic,
+      mcqBest: g.score, mcqTotal: g.total,
+      tasksCompleted: Object.keys(g.tasks).length,
+      tasksTotal: Object.keys(g.tasks).length,
+      taskIds: Object.keys(g.tasks),
+      status: g.done ? 'Completed' : 'In Progress',
+      lastEvent: 'Migrated from Archive_Activity_Log',
+      timestamp: g.updated
+    });
+  });
+
+  setSystemValue_('Migration', 'LegacyActivityDone', 'true', '', true, 'Automatically migrated once.');
+}
+
+function seedMissingAccountsFromLogs_() {
+  var sources = [TAB_ARCHIVE, TAB_TESTS, TAB_PROJECTS, TAB_DOUBTS, TAB_SESSIONS, TAB_INTEGRITY];
+  var existing = {};
+  masterRows_().forEach(function (a) { existing[norm_(a.id)] = true; });
+
+  sources.forEach(function (name) {
+    var sh = SpreadsheetApp.getActive().getSheetByName(name);
+    if (!sh || sh.getLastRow() < 2) return;
+    var values = sh.getDataRange().getValues();
+    var headers = headerMap_(values[0]);
+    var idCol = headers['Student ID'];
+    var nameCol = headers['Student Name'];
+    if (idCol == null) return;
+    for (var i = 1; i < values.length; i++) {
+      var id = String(values[i][idCol] || '').trim();
+      if (!id || existing[norm_(id)]) continue;
+      var role = /^f/i.test(id) ? 'Faculty' : 'Student';
+      appendMaster_({
+        id: id,
+        role: role,
+        name: nameCol == null ? '' : values[i][nameCol],
+        email: '', section: '', managedSections: '', status: 'Active',
+        course: 'Python Programming', registered: new Date(), lastSeen: '',
+        currentUnit: '', currentStep: '', salt: '', pinHash: '',
+        tokenHash: '', tokenExpiry: '', lastLogin: '', profileComplete: false,
+        notes: 'Created during legacy data migration. Complete profile before signing in.'
+      });
+      existing[norm_(id)] = true;
+    }
+  });
+}
+
+function ensureTriggers_() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var hasTimer = false;
+  var hasEdit = false;
+  triggers.forEach(function (t) {
+    if (t.getHandlerFunction() === 'scheduledRefreshViews') hasTimer = true;
+    if (t.getHandlerFunction() === 'handleManagementEdit') hasEdit = true;
+  });
+  if (!hasTimer) {
+    ScriptApp.newTrigger('scheduledRefreshViews')
+      .timeBased().everyMinutes(DASHBOARD_REFRESH_MINUTES).create();
+  }
+  if (!hasEdit) {
+    ScriptApp.newTrigger('handleManagementEdit')
+      .forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
   }
 }
 
-function json(obj) {
+function scheduledRefreshViews() {
+  refreshAll();
+}
+
+/* ========================================================================== */
+/* WEB APP ROUTER                                                             */
+/* ========================================================================== */
+
+function doGet() {
+  return json_({ ok: true, service: APP_NAME, version: '3.0.0', message: 'Backend is live.' });
+}
+
+function doPost(e) {
+  var b;
+  try { b = JSON.parse(e.postData.contents); }
+  catch (err) { return json_({ ok: false, error: 'Request body was not valid JSON.' }); }
+
+  try {
+    switch (String(b.action || '')) {
+      case 'sections':          return json_(handleListSections_(b));
+      case 'studentRegister':   return json_(handleStudentRegister_(b));
+      case 'login':             return json_(handleLogin_(b));
+      case 'resume':            return json_(handleResume_(b));
+      case 'logout':            return json_(handleLogout_(b));
+      case 'syncCourse':        return json_(handleSyncCourse_(b));
+      case 'progress':          return json_(handleProgress_(b));
+      case 'test':              return json_(handleTest_(b));
+      case 'project':           return json_(handleProject_(b));
+      case 'heartbeat':         return json_(handleHeartbeat_(b));
+      case 'flag':              return json_(handleFlag_(b));
+      case 'ask':               return json_(handleAsk_(b));
+      case 'facultyDashboard':  return json_(handleFacultyDashboard_(b));
+      case 'facultyStudent':    return json_(handleFacultyStudent_(b));
+      case 'createSection':     return json_(handleCreateSection_(b));
+      case 'studentAction':     return json_(handleStudentAction_(b));
+      case 'approveProject':    return json_(handleApproveProject_(b));
+      default: return json_({ ok: false, error: 'Unknown action: ' + b.action });
+    }
+  } catch (err) {
+    console.error(err && err.stack ? err.stack : err);
+    return json_({ ok: false, error: String(err && err.message ? err.message : err) });
+  }
+}
+
+function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/* ---------------------------------------------------------- handlers */
+/* ========================================================================== */
+/* AUTHENTICATION AND ACCOUNT MANAGEMENT                                      */
+/* ========================================================================== */
 
-function isBlocked(studentId) {
-  var rows = sheetFor(TAB_BLOCK, HEAD[TAB_BLOCK]).getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (norm(rows[i][0]) === norm(studentId)) return true;
+function handleListSections_() {
+  return { ok: true, sections: publicSections_().map(function (s) { return { name: s.name }; }) };
+}
+
+function handleStudentRegister_(b) {
+  var id = cleanId_(b.studentId);
+  var name = cleanName_(b.studentName);
+  var email = cleanEmail_(b.email);
+  var section = cleanSection_(b.section);
+  var pin = String(b.pin || '');
+
+  validateIdForRole_(id, 'Student');
+  if (name.length < 3) throw new Error('Enter your full name.');
+  if (!validEmail_(email)) throw new Error('Enter a valid email address.');
+  if (!sectionExists_(section)) throw new Error('Choose a section created by your faculty.');
+  validatePin_(pin);
+  ensureUniqueEmail_(email, id);
+
+  var existing = accountById_(id);
+  if (existing && existing.role !== 'Student') throw new Error('This ID belongs to a different account type.');
+  if (existing && existing.status === 'Blocked') {
+    return { ok: false, blocked: true, error: 'This account is blocked. Contact your faculty.' };
   }
-  return false;
+  if (existing && existing.name && norm_(existing.name) !== norm_(name)) {
+    throw new Error('The name does not match the existing student record. Contact faculty.');
+  }
+  if (existing && existing.profileComplete && existing.pinHash) {
+    throw new Error('This student account already exists. Use Sign in.');
+  }
+
+  var salt = newSalt_();
+  var values = {
+    id: id, role: 'Student', name: name, email: email, section: section,
+    managedSections: '', status: existing && existing.status === 'Blocked' ? 'Blocked' : 'Active',
+    course: b.course || 'Python Programming', registered: existing ? existing.registered : new Date(),
+    lastSeen: new Date(), currentUnit: existing ? existing.currentUnit : '',
+    currentStep: existing ? existing.currentStep : '', salt: salt,
+    pinHash: pinHash_(id, pin, salt), profileComplete: true,
+    notes: existing ? existing.notes : ''
+  };
+
+  var row = existing ? updateMaster_(existing.row, values) : appendMaster_(values);
+  var account = accountAtRow_(row);
+  var auth = issueToken_(account);
+  refreshStudentManagementRow_(id);
+  return authResponse_(account, auth, true);
 }
 
-/** The site asks this before letting a roll number in. */
-function handleCheck(b) {
-  return { ok: true, blocked: isBlocked(b.studentId) };
+function handleLogin_(b) {
+  var role = titleCaseRole_(b.role);
+  var id = cleanId_(b.accountId || b.studentId);
+  var pin = String(b.pin || '');
+  validateIdForRole_(id, role);
+  validatePin_(pin);
+
+  var account = accountById_(id);
+  if (!account || account.role !== role) throw new Error('The ID or PIN is not correct.');
+  if (account.status === 'Blocked') return { ok: false, blocked: true, error: 'This account is blocked. Contact your faculty.' };
+  if (account.status === 'Deleted') throw new Error('This account is unavailable.');
+  if (!account.pinHash || !account.profileComplete) {
+    return {
+      ok: false,
+      needsProfile: role === 'Student',
+      error: role === 'Student'
+        ? 'Complete your first-time student registration before signing in.'
+        : 'This faculty account has not been activated by the Sheet owner.'
+    };
+  }
+  if (!secureEqual_(account.pinHash, pinHash_(id, pin, account.salt))) {
+    throw new Error('The ID or PIN is not correct.');
+  }
+
+  var auth = issueToken_(account);
+  account = accountById_(id);
+  return authResponse_(account, auth, false);
 }
 
-function handleRegister(b) {
-  if (isBlocked(b.studentId)) return { ok: false, blocked: true, error: 'This roll number has been removed by your faculty.' };
+function handleResume_(b) {
+  var account = requireAuth_(b);
+  touchMaster_(account.id, '', '');
+  return authResponse_(accountById_(account.id), {
+    token: b.authToken,
+    expiresAt: account.authExpires instanceof Date ? account.authExpires.toISOString() : account.authExpires
+  }, false);
+}
 
-  var sh   = sheetFor(TAB_STUDENTS, HEAD[TAB_STUDENTS]);
-  var now  = new Date();
+function handleLogout_(b) {
+  var account = requireAuth_(b);
+  clearToken_(account.row);
+  return { ok: true };
+}
+
+function authResponse_(account, auth, registered) {
+  var result = {
+    ok: true,
+    registered: !!registered,
+    token: auth.token,
+    expiresAt: auth.expiresAt,
+    account: publicAccount_(account),
+    sections: account.role === 'Faculty' ? getManagedSections_(account.id) : [],
+    state: account.role === 'Student' ? studentSyncState_(account.id) : null
+  };
+  return result;
+}
+
+function publicAccount_(a) {
+  return {
+    id: a.id,
+    role: a.role.toLowerCase(),
+    name: a.name,
+    email: a.email,
+    section: a.section,
+    status: a.status,
+    course: a.course,
+    profileComplete: !!a.profileComplete
+  };
+}
+
+function issueToken_(account) {
+  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  var expiry = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000);
+  var sh = sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]);
+  sh.getRange(account.row, 16).setValue(hashText_(token));
+  sh.getRange(account.row, 17).setValue(expiry);
+  sh.getRange(account.row, 18).setValue(new Date());
+  sh.getRange(account.row, 11).setValue(new Date());
+  return { token: token, expiresAt: expiry.toISOString() };
+}
+
+function clearToken_(row) {
+  sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]).getRange(row, 16, 1, 2).clearContent();
+}
+
+function requireAuth_(b, requiredRole) {
+  var token = String(b.authToken || '');
+  if (!token) throw new Error('Your session has expired. Sign in again.');
+  var tokenHash = hashText_(token);
+  var rows = masterRows_();
+  for (var i = 0; i < rows.length; i++) {
+    var a = rows[i];
+    if (!a.tokenHash || !secureEqual_(String(a.tokenHash), tokenHash)) continue;
+    if (!(a.authExpires instanceof Date) || a.authExpires.getTime() <= Date.now()) {
+      clearToken_(a.row);
+      throw new Error('Your session has expired. Sign in again.');
+    }
+    if (a.status === 'Blocked') throw new Error('This account is blocked. Contact your faculty.');
+    if (requiredRole && a.role !== requiredRole) throw new Error('You do not have permission for this action.');
+    return a;
+  }
+  throw new Error('Your session is invalid. Sign in again.');
+}
+
+function validateIdForRole_(id, role) {
+  if (!/^[A-Za-z][A-Za-z0-9_-]{2,29}$/.test(id)) {
+    throw new Error('This ID is not valid for the selected role.');
+  }
+  if (role === 'Student' && !/^s/i.test(id)) throw new Error('This ID is not valid for the selected role.');
+  if (role === 'Faculty' && !/^f/i.test(id)) throw new Error('This ID is not valid for the selected role.');
+}
+
+function validatePin_(pin) {
+  if (!/^\d{4}$/.test(pin)) throw new Error('Use a four-digit PIN.');
+}
+
+function pinHash_(id, pin, salt) {
+  return hashText_(norm_(id) + '|' + String(salt) + '|' + String(pin));
+}
+
+function newSalt_() {
+  return Utilities.getUuid().replace(/-/g, '');
+}
+
+function hashText_(text) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(text), Utilities.Charset.UTF_8);
+  return bytes.map(function (b) {
+    var v = b < 0 ? b + 256 : b;
+    return ('0' + v.toString(16)).slice(-2);
+  }).join('');
+}
+
+function secureEqual_(a, b) {
+  a = String(a || ''); b = String(b || '');
+  if (a.length !== b.length) return false;
+  var result = 0;
+  for (var i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return result === 0;
+}
+
+/* ========================================================================== */
+/* SECTIONS AND COURSE SCHEMA                                                 */
+/* ========================================================================== */
+
+function handleCreateSection_(b) {
+  var faculty = requireAuth_(b, 'Faculty');
+  var name = cleanSection_(b.sectionName);
+  if (name.length < 2 || name.length > 60) throw new Error('Use a section name between 2 and 60 characters.');
+
+  var key = norm_(name);
+  var sh = sheetFor_(TAB_SYSTEM, HEAD[TAB_SYSTEM]);
   var rows = sh.getDataRange().getValues();
-
   for (var i = 1; i < rows.length; i++) {
-    if (norm(rows[i][1]) === norm(b.studentId)) {
-      sh.getRange(i + 1, 7).setValue(now);
-      return { ok: true, returning: true };
+    if (rows[i][0] === 'Section' && norm_(rows[i][1]) === key && norm_(rows[i][3]) === norm_(faculty.id)) {
+      sh.getRange(i + 1, 5).setValue(true);
+      sh.getRange(i + 1, 6).setValue(new Date());
+      syncManagedSectionsText_(faculty.id);
+      return { ok: true, sections: getManagedSections_(faculty.id), allSections: publicSections_() };
     }
   }
-  sh.appendRow([now, b.studentId, b.studentName, b.course || '', now, 'Topic 1', now]);
-  return { ok: true, returning: false };
+  sh.appendRow(['Section', key, name, faculty.id, true, new Date(), 'Created from the faculty website.']);
+  syncManagedSectionsText_(faculty.id);
+  refreshAll();
+  return { ok: true, sections: getManagedSections_(faculty.id), allSections: publicSections_() };
 }
 
-function handleProgress(b) {
-  sheetFor(TAB_ACTIVITY, HEAD[TAB_ACTIVITY]).appendRow([
-    new Date(), b.studentId, b.studentName,
-    b.unit || '', b.topic || '', b.mcqScore || '',
-    b.codeStatus || '', b.progression || ''
+function handleSyncCourse_(b) {
+  var faculty = requireAuth_(b, 'Faculty');
+  var schema = b.schema;
+  if (!schema || !Array.isArray(schema.units)) throw new Error('Course schema was missing.');
+  var safe = {
+    version: String(schema.version || ''),
+    updatedBy: faculty.id,
+    updatedAt: new Date().toISOString(),
+    units: schema.units.map(function (u) {
+      return {
+        unit: String(u.unit || ''),
+        title: String(u.title || ''),
+        steps: (u.steps || []).map(function (s) {
+          return {
+            id: String(s.id || ''),
+            type: String(s.type || 'Topic'),
+            title: String(s.title || ''),
+            tasksTotal: Number(s.tasksTotal || 0)
+          };
+        }),
+        testId: String(u.testId || ''),
+        projectId: String(u.projectId || '')
+      };
+    })
+  };
+  var text = JSON.stringify(safe);
+  if (text.length > 45000) throw new Error('Course schema was unexpectedly large.');
+  setSystemValue_('Course', 'Schema', text, faculty.id, true, 'Synced automatically from the faculty website.');
+  refreshAll();
+  return { ok: true, units: safe.units.length };
+}
+
+function publicSections_() {
+  var sh = sheetFor_(TAB_SYSTEM, HEAD[TAB_SYSTEM]);
+  var rows = sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, HEAD[TAB_SYSTEM].length).getValues();
+  var sections = {};
+  rows.forEach(function (r) {
+    if (r[0] !== 'Section' || r[4] !== true) return;
+    var name = String(r[2] || '').trim();
+    if (!name) return;
+    var key = norm_(name);
+    if (!sections[key]) sections[key] = { name: name, facultyIds: [] };
+    if (r[3]) sections[key].facultyIds.push(String(r[3]));
+  });
+  return Object.keys(sections).sort().map(function (k) {
+    return { name: sections[k].name, facultyIds: unique_(sections[k].facultyIds) };
+  });
+}
+
+function getManagedSections_(facultyId) {
+  var all = publicSections_();
+  if (isSuperAdmin_(facultyId)) return all.map(function (s) { return s.name; });
+  return all.filter(function (s) {
+    return s.facultyIds.some(function (id) { return norm_(id) === norm_(facultyId); });
+  }).map(function (s) { return s.name; });
+}
+
+function sectionExists_(section) {
+  return publicSections_().some(function (s) { return norm_(s.name) === norm_(section); });
+}
+
+function sectionOwners_(section) {
+  var match = publicSections_().filter(function (s) { return norm_(s.name) === norm_(section); })[0];
+  return match ? match.facultyIds : [];
+}
+
+function canManageStudent_(faculty, student) {
+  if (isSuperAdmin_(faculty.id)) return true;
+  return getManagedSections_(faculty.id).some(function (s) { return norm_(s) === norm_(student.section); });
+}
+
+function isSuperAdmin_(id) {
+  var raw = PropertiesService.getScriptProperties().getProperty('SUPERADMIN_IDS') || '';
+  return raw.split(',').some(function (x) { return norm_(x) === norm_(id); });
+}
+
+function courseSchema_() {
+  var raw = systemValue_('Course', 'Schema');
+  try {
+    var parsed = JSON.parse(raw || '{}');
+    if (parsed && Array.isArray(parsed.units)) return parsed;
+  } catch (err) {}
+  return { version: '', units: [] };
+}
+
+/* ========================================================================== */
+/* STUDENT DATA HANDLERS                                                      */
+/* ========================================================================== */
+
+function handleProgress_(b) {
+  var account = requireAuth_(b, 'Student');
+  var result = upsertProgress_({
+    account: account,
+    unit: String(b.unit || ''),
+    stepId: String(b.stepId || ''),
+    stepType: String(b.stepType || 'Topic'),
+    stepName: String(b.stepName || b.topic || ''),
+    mcqBest: Number(b.mcqBest || 0),
+    mcqTotal: Number(b.mcqTotal || 0),
+    tasksCompleted: Number(b.tasksCompleted || 0),
+    tasksTotal: Number(b.tasksTotal || 0),
+    taskIds: Array.isArray(b.taskIds) ? b.taskIds : [],
+    status: String(b.status || 'In Progress'),
+    lastEvent: String(b.lastEvent || ''),
+    timestamp: new Date()
+  });
+  touchMaster_(account.id, b.unit || '', b.stepName || b.topic || '');
+  if (String(b.status) === 'Completed') refreshStudentManagementRow_(account.id);
+  return { ok: true, row: result };
+}
+
+function upsertProgress_(x) {
+  if (!x.stepId) throw new Error('Progress step ID was missing.');
+  var sh = sheetFor_(TAB_PROGRESS, HEAD[TAB_PROGRESS]);
+  var last = sh.getLastRow();
+  var row = 0;
+  if (last >= 2) {
+    var vals = sh.getRange(2, 2, last - 1, 6).getValues(); // ID through Step ID.
+    for (var i = vals.length - 1; i >= 0; i--) {
+      if (norm_(vals[i][0]) === norm_(x.account.id) && String(vals[i][5]) === String(x.stepId)) {
+        row = i + 2; break;
+      }
+    }
+  }
+
+  var existingStarted = row ? sh.getRange(row, 17).getValue() : '';
+  var existingCompleted = row ? sh.getRange(row, 18).getValue() : '';
+  var now = x.timestamp || new Date();
+  var status = ['Not Started', 'In Progress', 'Completed', 'Reset'].indexOf(x.status) > -1
+    ? x.status : 'In Progress';
+  var completedAt = status === 'Completed' ? (existingCompleted || now) : '';
+  if (status === 'Reset' || status === 'Not Started') completedAt = '';
+
+  var pct = x.mcqTotal ? x.mcqBest / x.mcqTotal : '';
+  var values = [[
+    now, x.account.id, x.account.name, x.account.email, x.account.section,
+    x.unit, x.stepId, x.stepType, x.stepName, x.mcqBest || '', x.mcqTotal || '',
+    pct, x.tasksCompleted || 0, x.tasksTotal || 0,
+    JSON.stringify(unique_(x.taskIds || [])), status,
+    existingStarted || now, completedAt, x.lastEvent || ''
+  ]];
+
+  if (row) sh.getRange(row, 1, 1, HEAD[TAB_PROGRESS].length).setValues(values);
+  else {
+    sh.appendRow(values[0]);
+    row = sh.getLastRow();
+  }
+  sh.getRange(row, 12).setNumberFormat('0%');
+  return row;
+}
+
+function handleTest_(b) {
+  var account = requireAuth_(b, 'Student');
+  var sh = sheetFor_(TAB_TESTS, HEAD[TAB_TESTS]);
+  var unit = String(b.unit || '');
+  var attempt = activeTestAttempts_(account.id, unit) + 1;
+  var total = Number(b.total || 0);
+  var score = Number(b.score || 0);
+  var pct = total ? score / total : Number(b.percent || 0) / 100;
+  sh.appendRow([
+    new Date(), account.id, account.name, account.email, account.section,
+    unit, String(b.testName || ''), score, total, pct,
+    String(b.result || ''), attempt, String(b.reason || 'Submitted'), '', ''
   ]);
-  var mark = (b.progression && b.progression.indexOf('unlocked') > -1) ? b.progression : '';
-  touchStudent(b.studentId, mark);
-  return { ok: true };
+  sh.getRange(sh.getLastRow(), 10).setNumberFormat('0%');
+  touchMaster_(account.id, unit, String(b.testName || 'Unit test'));
+  refreshStudentManagementRow_(account.id);
+  return { ok: true, attempt: attempt };
 }
 
-function handleTest(b) {
-  sheetFor(TAB_TESTS, HEAD[TAB_TESTS]).appendRow([
-    new Date(), b.studentId, b.studentName,
-    b.unit || '', b.testName || '',
-    b.score, b.total, (b.percent || 0) / 100,
-    b.result || '', b.attempt || 1, b.reason || ''
-  ]);
-  touchStudent(b.studentId, b.unit + ' test: ' + b.result + ' (' + b.score + '/' + b.total + ')');
-  return { ok: true };
+function handleProject_(b) {
+  var account = requireAuth_(b, 'Student');
+  var unit = String(b.unit || '');
+  var projectName = String(b.projectName || '');
+  var existing = projectRecord_(account.id, unit);
+  if (existing && existing.submissionStatus && existing.submissionStatus !== 'Reset') {
+    throw new Error('A project has already been submitted for this unit. Faculty must reset it before another submission.');
+  }
+
+  var type = String(b.submissionType || 'Link');
+  var url = '';
+  var driveFileId = '';
+  var fileName = '';
+  var reviewText = '';
+
+  if (type === 'File') {
+    fileName = safeFileName_(b.fileName);
+    if (!/\.(py|ipynb)$/i.test(fileName)) throw new Error('Only .py and .ipynb files are accepted.');
+    var bytes = Utilities.base64Decode(String(b.fileBase64 || ''));
+    if (!bytes.length || bytes.length > MAX_PROJECT_BYTES) throw new Error('The project file must be 5 MB or smaller.');
+    var mime = /\.ipynb$/i.test(fileName) ? 'application/json' : 'text/x-python';
+    var blob = Utilities.newBlob(bytes, mime, fileName);
+    var folder = projectFolder_();
+    var storedName = safeFileName_(account.id + '_' + slug_(unit) + '_' + Date.now() + '_' + fileName);
+    blob.setName(storedName);
+    var file = folder.createFile(blob);
+    driveFileId = file.getId();
+    url = file.getUrl();
+    reviewText = extractCodeForReview_(fileName, Utilities.newBlob(bytes).getDataAsString('UTF-8'));
+  } else {
+    type = 'Link';
+    url = validateProjectUrl_(String(b.link || ''));
+    reviewText = fetchReviewableCode_(url);
+  }
+
+  var review = reviewProject_(reviewText, unit, projectName);
+  var rowValues = [
+    new Date(), account.id, account.name, account.email, account.section, unit,
+    projectName, type, url, driveFileId, fileName,
+    review.score === '' ? '' : review.score,
+    review.summary || '', listText_(review.strengths), listText_(review.issues),
+    listText_(review.improvements), review.status,
+    '', '', '', '', 'Pending Faculty Approval', '', ''
+  ];
+
+  var sh = sheetFor_(TAB_PROJECTS, HEAD[TAB_PROJECTS]);
+  var row;
+  if (existing) {
+    row = existing.row;
+    sh.getRange(row, 1, 1, HEAD[TAB_PROJECTS].length).setValues([rowValues]);
+  } else {
+    sh.appendRow(rowValues);
+    row = sh.getLastRow();
+  }
+  touchMaster_(account.id, unit, projectName);
+  refreshStudentManagementRow_(account.id);
+  return {
+    ok: true,
+    submission: projectPublicRecord_(projectAtRow_(row), false)
+  };
 }
 
-function handleProject(b) {
-  sheetFor(TAB_PROJECTS, HEAD[TAB_PROJECTS]).appendRow([
-    new Date(), b.studentId, b.studentName,
-    b.unit || '', b.projectName || '', b.link || ''
-  ]);
-  touchStudent(b.studentId, b.unit + ' project submitted');
-  return { ok: true };
-}
-
-/**
- * One row per sitting. The site pings every couple of minutes while the tab is
- * open and in front, so Minutes reflects real time on the page, not time since
- * they first logged in.
- */
-function handleHeartbeat(b) {
-  var sh    = sheetFor(TAB_SESSIONS, HEAD[TAB_SESSIONS]);
+function handleHeartbeat_(b) {
+  var account = requireAuth_(b, 'Student');
+  var sh = sheetFor_(TAB_SESSIONS, HEAD[TAB_SESSIONS]);
+  var sessionId = String(b.sessionId || '');
+  if (!sessionId) throw new Error('Session ID was missing.');
   var cache = CacheService.getScriptCache();
-  var key   = 'sess_' + b.sessionId;
-  var row   = cache.get(key);
-  var now   = new Date();
+  var key = 'sess_' + sessionId;
+  var row = Number(cache.get(key) || 0);
+  var now = new Date();
 
-  if (!row) {
-    var ids = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), 1).getValues();
-    for (var i = ids.length - 1; i >= 1; i--) {
-      if (String(ids[i][0]) === String(b.sessionId)) { row = String(i + 1); break; }
+  if (!row && sh.getLastRow() >= 2) {
+    var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    for (var i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0]) === sessionId) { row = i + 2; break; }
     }
   }
 
   if (row) {
-    var r = Number(row);
-    sh.getRange(r, 5).setValue(now);
-    sh.getRange(r, 6).setValue(Math.round((b.minutes || 0) * 10) / 10);
-    sh.getRange(r, 7).setValue(b.screen || '');
+    sh.getRange(row, 5).setValue(now);
+    sh.getRange(row, 6).setValue(round1_(b.minutes));
+    sh.getRange(row, 7).setValue(String(b.screen || ''));
   } else {
-    sh.appendRow([b.sessionId, b.studentId, b.studentName, now, now,
-                  Math.round((b.minutes || 0) * 10) / 10, b.screen || '']);
-    row = String(sh.getLastRow());
+    sh.appendRow([sessionId, account.id, account.name, now, now, round1_(b.minutes), String(b.screen || '')]);
+    row = sh.getLastRow();
   }
-  cache.put(key, row, 21600);          // remember the row for six hours
-  touchStudent(b.studentId, '');
+  cache.put(key, String(row), 21600);
+  touchMaster_(account.id, '', String(b.screen || ''));
   return { ok: true };
 }
 
-/** Anything worth a faculty eyebrow: tab switches, paste attempts, forced submissions. */
-function handleFlag(b) {
-  sheetFor(TAB_INTEGRITY, HEAD[TAB_INTEGRITY]).appendRow([
-    new Date(), b.studentId, b.studentName,
-    b.event || '', b.where || '', b.detail || ''
+function handleFlag_(b) {
+  var account = requireAuth_(b, 'Student');
+  sheetFor_(TAB_INTEGRITY, HEAD[TAB_INTEGRITY]).appendRow([
+    new Date(), account.id, account.name, String(b.event || ''),
+    String(b.where || ''), String(b.detail || '')
   ]);
+  refreshStudentManagementRow_(account.id);
   return { ok: true };
 }
 
-function touchStudent(studentId, progressText) {
-  var sh   = sheetFor(TAB_STUDENTS, HEAD[TAB_STUDENTS]);
-  var rows = sh.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (norm(rows[i][1]) === norm(studentId)) {
-      if (progressText) sh.getRange(i + 1, 6).setValue(progressText);
-      sh.getRange(i + 1, 7).setValue(new Date());
-      return;
-    }
-  }
-}
-
-/* --------------------------------------------------------- AI doubts */
-
-function handleAsk(b) {
+function handleAsk_(b) {
+  var account = requireAuth_(b);
   var props = PropertiesService.getScriptProperties();
-  var key   = props.getProperty('GEMINI_API_KEY');
+  var key = props.getProperty('GEMINI_API_KEY');
   if (!key) return { ok: false, error: 'The AI helper is not configured yet.' };
-
   var model = props.getProperty('GEMINI_MODEL') || 'gemini-2.5-flash';
 
   var system =
-    'You are the study helper inside AbhyasLab, a beginner Python portal for first-year ' +
-    'undergraduate students in India. ' +
-    'Current topic context: ' + (b.context || 'Python basics') + '. ' +
-    'Rules: Answer in simple English, short paragraphs, under 150 words unless the student ' +
-    'asks for more. Assume the student has never programmed before; never assume prior ' +
-    'knowledge of other languages. Use tiny code examples where they help, but if the ' +
-    'student is asking for the answer to a practice task, do NOT write that program for ' +
-    'them — explain the idea, point at the line that is wrong, or give a smaller worked ' +
-    'example instead. If a question is unrelated to the course, say so briefly and steer ' +
-    'back to the topic.';
+    'You are the study helper inside AbhyasLab, a beginner Python learning portal. ' +
+    'Current topic context: ' + String(b.context || 'Python') + '. ' +
+    'Use very simple English and short paragraphs. Use tiny examples when useful. ' +
+    'Do not provide a finished answer to a marked practice task. Explain the idea, ' +
+    'give a smaller example, or point out the error instead.';
 
   var contents = [];
-  (b.history || []).forEach(function (m) {
-    contents.push({ role: m.role === 'model' ? 'model' : 'user', parts: [{ text: String(m.text) }] });
+  (b.history || []).slice(-6).forEach(function (m) {
+    contents.push({ role: m.role === 'model' ? 'model' : 'user', parts: [{ text: String(m.text || '') }] });
   });
-  if (!contents.length || contents[contents.length - 1].parts[0].text !== b.question) {
-    contents.push({ role: 'user', parts: [{ text: String(b.question) }] });
-  }
+  contents.push({ role: 'user', parts: [{ text: String(b.question || '') }] });
 
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
-            encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key);
-
-  var res = UrlFetchApp.fetch(url, {
-    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    payload: JSON.stringify({
-      system_instruction: { parts: [{ text: system }] },
-      contents: contents,
-      generationConfig: { temperature: 0.4, maxOutputTokens: 600 }
-    })
+  var response = geminiRequest_(model, {
+    system_instruction: { parts: [{ text: system }] },
+    contents: contents,
+    generationConfig: { temperature: 0.4, maxOutputTokens: 700 }
   });
+  var reply = response.text;
+  if (!reply) throw new Error('No answer came back. Try rephrasing the question.');
 
-  var data;
-  try { data = JSON.parse(res.getContentText()); }
-  catch (err) { return { ok: false, error: 'The AI service sent an unreadable reply.' }; }
-
-  if (res.getResponseCode() !== 200) {
-    return { ok: false, error: (data && data.error && data.error.message) || 'AI service error.' };
+  if (account.role === 'Student') {
+    sheetFor_(TAB_DOUBTS, HEAD[TAB_DOUBTS]).appendRow([
+      new Date(), account.id, account.name, String(b.context || ''), String(b.question || ''), reply
+    ]);
+    refreshStudentManagementRow_(account.id);
   }
-
-  var reply = '';
-  try { reply = data.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join(''); }
-  catch (err) { reply = ''; }
-  if (!reply) return { ok: false, error: 'No answer came back. Try rephrasing the question.' };
-
-  try {
-    sheetFor(TAB_DOUBTS, HEAD[TAB_DOUBTS])
-      .appendRow([new Date(), b.studentId, b.studentName, b.context || '', b.question, reply]);
-  } catch (err) { /* logging must never break the answer */ }
-
   return { ok: true, reply: reply };
 }
 
-/* ====================================================================== */
-/*  GATHER — read every log once, build one record per student            */
-/* ====================================================================== */
+/* ========================================================================== */
+/* PROJECT AI REVIEW                                                          */
+/* ========================================================================== */
 
-function gather() {
-  var rows = function (name) {
-    var sh = sheetFor(name, HEAD[name]);
-    var last = sh.getLastRow();
-    if (last < 2) return [];
-    return sh.getRange(2, 1, last - 1, HEAD[name].length).getValues();
-  };
-
-  var students = {}, order = [], topics = {}, days = {};
-
-  rows(TAB_STUDENTS).forEach(function (r) {
-    if (!r[1]) return;
-    var id = norm(r[1]);
-    students[id] = {
-      id: r[1], name: r[2], course: r[3],
-      registered: r[4], furthest: r[5], lastSeen: r[6],
-      topics: {}, quiz: {}, tasks: 0, completed: 0,
-      tests: [], bestTest: null, testTotal: 0, testAttempts: 0, testPassed: false,
-      project: null, minutes: 0, sessions: 0,
-      flags: 0, flagKinds: {}, doubts: 0, lastDoubts: []
+function reviewProject_(code, unit, projectName) {
+  if (!code) {
+    return {
+      score: '', summary: 'Automatic review was unavailable for this submission link.',
+      strengths: [], issues: ['Faculty review is required.'], improvements: [],
+      status: 'Manual Review Required'
     };
-    order.push(id);
-  });
+  }
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) {
+    return {
+      score: '', summary: 'AI project review is not configured.', strengths: [],
+      issues: [], improvements: [], status: 'AI Not Configured'
+    };
+  }
 
-  var seed = function (id) {
-    if (!students[id]) {
-      students[id] = { id: id, name: '(not in master list)', topics: {}, quiz: {}, tasks: 0,
-        completed: 0, tests: [], bestTest: null, testTotal: 0, testAttempts: 0, testPassed: false,
-        project: null, minutes: 0, sessions: 0, flags: 0, flagKinds: {}, doubts: 0, lastDoubts: [] };
-      order.push(id);
-    }
-    return students[id];
-  };
+  var model = PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || 'gemini-2.5-flash';
+  var prompt =
+    'Review the following beginner Python project using static source-code analysis only. ' +
+    'Do not claim that you executed the program. Unit: ' + unit + '. Project: ' + projectName + '.\n' +
+    'Give a suggested score from 0 to 100. Consider required Python concepts, logic visible ' +
+    'in the code, readability, naming, comments, likely runtime or logic errors, and completeness. ' +
+    'Return ONLY valid JSON with this exact shape: ' +
+    '{"score":0,"summary":"","strengths":[""],"issues":[""],"improvements":[""]}.\n\n' +
+    'SOURCE CODE:\n' + String(code).slice(0, 90000);
 
-  rows(TAB_ACTIVITY).forEach(function (r) {
-    if (!r[1]) return;
-    var s = seed(norm(r[1])), topic = r[4];
-    if (topic) {
-      topics[topic] = topics[topic] || { name: topic, attempted: {}, completed: {}, scores: [] };
-      topics[topic].attempted[s.id] = 1;
-      s.topics[topic] = s.topics[topic] || { status: 'started', quiz: null, tasks: 0 };
-
-      var m = String(r[5] || '').match(/^(\d+)\s*\/\s*(\d+)$/);
-      if (m) {
-        var pct = Number(m[1]) / Number(m[2]);
-        if (s.quiz[topic] == null || pct > s.quiz[topic]) s.quiz[topic] = pct;
-        s.topics[topic].quiz = m[1] + '/' + m[2];
+  try {
+    var res = geminiRequest_(model, {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 1200,
+        responseMimeType: 'application/json'
       }
-      if (String(r[6] || '').indexOf('Passed:') === 0) { s.tasks++; s.topics[topic].tasks++; }
-      if (String(r[7] || '').indexOf('unlocked') > -1 || String(r[7] || '') === 'Unit complete') {
-        if (s.topics[topic].status !== 'done') { s.completed++; s.topics[topic].status = 'done'; }
-        topics[topic].completed[s.id] = 1;
-      }
-    }
-    if (r[0] instanceof Date) { var d = dayKey(r[0]); days[d] = days[d] || {}; days[d][s.id] = 1; }
-  });
+    });
+    var parsed = JSON.parse(stripCodeFence_(res.text));
+    var score = Math.max(0, Math.min(100, Number(parsed.score || 0)));
+    return {
+      score: Math.round(score),
+      summary: String(parsed.summary || ''),
+      strengths: arrayStrings_(parsed.strengths),
+      issues: arrayStrings_(parsed.issues),
+      improvements: arrayStrings_(parsed.improvements),
+      status: 'Suggested — Awaiting Faculty Approval'
+    };
+  } catch (err) {
+    return {
+      score: '', summary: 'AI review failed and faculty review is required.',
+      strengths: [], issues: [String(err.message || err)], improvements: [],
+      status: 'Manual Review Required'
+    };
+  }
+}
 
-  Object.keys(topics).forEach(function (t) {
-    Object.keys(students).forEach(function (id) {
-      if (students[id].quiz[t] != null) topics[t].scores.push(students[id].quiz[t]);
+function geminiRequest_(model, payload) {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('Gemini API key is missing.');
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+    encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key);
+  var response = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    payload: JSON.stringify(payload)
+  });
+  var data;
+  try { data = JSON.parse(response.getContentText()); }
+  catch (err) { throw new Error('The AI service returned an unreadable response.'); }
+  if (response.getResponseCode() !== 200) {
+    throw new Error((data.error && data.error.message) || 'AI service error.');
+  }
+  var text = '';
+  try {
+    text = data.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('');
+  } catch (err) {}
+  return { text: text };
+}
+
+function extractCodeForReview_(fileName, text) {
+  text = String(text || '');
+  if (/\.py$/i.test(fileName)) return text;
+  try {
+    var notebook = JSON.parse(text);
+    return (notebook.cells || []).filter(function (c) { return c.cell_type === 'code'; })
+      .map(function (c, i) {
+        var source = Array.isArray(c.source) ? c.source.join('') : String(c.source || '');
+        return '# Notebook code cell ' + (i + 1) + '\n' + source;
+      }).join('\n\n');
+  } catch (err) {
+    return text;
+  }
+}
+
+function fetchReviewableCode_(url) {
+  try {
+    var target = url;
+    var gh = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/i);
+    if (gh) target = 'https://raw.githubusercontent.com/' + gh[1] + '/' + gh[2] + '/' + gh[3] + '/' + gh[4];
+    var drive = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([-\w]+)/i);
+    if (drive) target = 'https://drive.google.com/uc?export=download&id=' + drive[1];
+    if (!/raw\.githubusercontent\.com|drive\.google\.com\/uc/i.test(target)) return '';
+    var res = UrlFetchApp.fetch(target, { muteHttpExceptions: true, followRedirects: true });
+    if (res.getResponseCode() !== 200) return '';
+    var text = res.getContentText();
+    return text.length <= 200000 ? text : text.slice(0, 200000);
+  } catch (err) {
+    return '';
+  }
+}
+
+function projectFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('PROJECT_FOLDER_ID');
+  if (id) {
+    try { return DriveApp.getFolderById(id); }
+    catch (err) {}
+  }
+  var folders = DriveApp.getFoldersByName('AbhyasLab Project Submissions');
+  var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder('AbhyasLab Project Submissions');
+  props.setProperty('PROJECT_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+function validateProjectUrl_(raw) {
+  raw = String(raw || '').trim();
+  if (!/^https:\/\//i.test(raw)) throw new Error('Use a complete https:// project link.');
+  if (!/(^|\.)github\.com$|(^|\.)drive\.google\.com$|(^|\.)docs\.google\.com$/i.test(hostFromUrl_(raw))) {
+    throw new Error('Only GitHub or Google Drive links are accepted.');
+  }
+  return raw;
+}
+
+function hostFromUrl_(url) {
+  var m = String(url).match(/^https:\/\/([^/]+)/i);
+  return m ? m[1].toLowerCase().replace(/:\d+$/, '') : '';
+}
+
+/* ========================================================================== */
+/* FACULTY WEBSITE API                                                        */
+/* ========================================================================== */
+
+function handleFacultyDashboard_(b) {
+  var faculty = requireAuth_(b, 'Faculty');
+  var data = gatherAll_();
+  var visible = data.students.filter(function (s) { return canManageStudent_(faculty, s.account); });
+  var pending = [];
+  visible.forEach(function (s) {
+    Object.keys(s.projects).forEach(function (unit) {
+      var p = s.projects[unit];
+      if (p.submissionStatus === 'Pending Faculty Approval') {
+        pending.push(projectPublicRecord_(p, true));
+      }
     });
   });
+  return {
+    ok: true,
+    faculty: publicAccount_(faculty),
+    sections: getManagedSections_(faculty.id),
+    summary: dashboardSummary_(visible),
+    students: visible.map(snapshotPublic_),
+    pendingProjects: pending
+  };
+}
 
-  rows(TAB_TESTS).forEach(function (r) {
-    if (!r[1]) return;
-    var s = seed(norm(r[1]));
-    s.tests.push({ when: r[0], score: r[5], total: r[6], pct: r[7], result: r[8], attempt: r[9], how: r[10] });
-    s.testAttempts++;
-    s.testTotal = r[6];
-    if (s.bestTest == null || Number(r[5]) > s.bestTest) s.bestTest = Number(r[5]);
-    if (String(r[8]) === 'Pass') s.testPassed = true;
+function handleFacultyStudent_(b) {
+  var faculty = requireAuth_(b, 'Faculty');
+  var account = accountById_(b.studentId);
+  if (!account || account.role !== 'Student') throw new Error('Student was not found.');
+  if (!canManageStudent_(faculty, account)) throw new Error('This student is outside your assigned sections.');
+  var data = gatherAll_();
+  var snap = data.byId[norm_(account.id)];
+  return { ok: true, student: snapshotDetailed_(snap) };
+}
+
+function handleStudentAction_(b) {
+  var faculty = requireAuth_(b, 'Faculty');
+  var student = accountById_(b.studentId);
+  if (!student || student.role !== 'Student') throw new Error('Student was not found.');
+  if (!canManageStudent_(faculty, student)) throw new Error('This student is outside your assigned sections.');
+  var result = executeStudentAction_(String(b.operation || ''), student.id, String(b.unit || ''), String(b.confirmation || ''), faculty.id);
+  return { ok: true, result: result };
+}
+
+function handleApproveProject_(b) {
+  var faculty = requireAuth_(b, 'Faculty');
+  var student = accountById_(b.studentId);
+  if (!student || !canManageStudent_(faculty, student)) throw new Error('Student was not found in your sections.');
+  var record = projectRecord_(student.id, b.unit);
+  if (!record || record.submissionStatus === 'Reset') throw new Error('There is no active project submission for this unit.');
+  var score = Number(b.score);
+  if (!isFinite(score) || score < 0 || score > 100) throw new Error('Approved score must be between 0 and 100.');
+  var sh = sheetFor_(TAB_PROJECTS, HEAD[TAB_PROJECTS]);
+  sh.getRange(record.row, 18).setValue(Math.round(score));
+  sh.getRange(record.row, 19).setValue(String(b.feedback || ''));
+  sh.getRange(record.row, 20).setValue(faculty.id);
+  sh.getRange(record.row, 21).setValue(new Date());
+  sh.getRange(record.row, 17).setValue('Approved');
+  sh.getRange(record.row, 22).setValue('Approved');
+  refreshStudentManagementRow_(student.id);
+  return { ok: true, submission: projectPublicRecord_(projectAtRow_(record.row), true) };
+}
+
+/* ========================================================================== */
+/* STUDENT ACTIONS — SHEET AND WEBSITE                                        */
+/* ========================================================================== */
+
+function executeStudentAction_(operation, studentId, unit, confirmation, actor) {
+  operation = String(operation || '').trim();
+  var student = accountById_(studentId);
+  if (!student || student.role !== 'Student') throw new Error('Student was not found.');
+
+  if (operation === 'Block') {
+    setMasterStatus_(student.id, 'Blocked', new Date(), actor);
+    clearToken_(student.row);
+    refreshStudentManagementRow_(student.id);
+    return 'Student blocked. Existing data was preserved.';
+  }
+  if (operation === 'Unblock') {
+    setMasterStatus_(student.id, 'Active', '', actor);
+    refreshStudentManagementRow_(student.id);
+    return 'Student unblocked. Previous progress remains available.';
+  }
+  if (operation === 'Reset Test') {
+    if (!unit) throw new Error('Choose a unit for the test reset.');
+    resetTest_(student.id, unit, actor);
+    refreshStudentManagementRow_(student.id);
+    return unit + ' test reset. The student can take it again.';
+  }
+  if (operation === 'Reset Project') {
+    if (!unit) throw new Error('Choose a unit for the project reset.');
+    resetProject_(student.id, unit, actor);
+    refreshStudentManagementRow_(student.id);
+    return unit + ' project reset. A new submission is now allowed.';
+  }
+  if (operation === 'Delete Permanently') {
+    if (norm_(confirmation) !== norm_(student.id)) {
+      throw new Error('Type the exact student ID in the Confirmation column.');
+    }
+    var removed = purgeStudent_(student.id);
+    return 'Student permanently deleted. ' + removed + ' database rows were removed.';
+  }
+  if (operation === 'View Report') {
+    buildStudentReport_(student.id);
+    return 'Student report opened.';
+  }
+  throw new Error('Choose a valid action.');
+}
+
+function resetTest_(studentId, unit, actor) {
+  var sh = sheetFor_(TAB_TESTS, HEAD[TAB_TESTS]);
+  if (sh.getLastRow() < 2) return;
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, HEAD[TAB_TESTS].length).getValues();
+  var now = new Date();
+  for (var i = 0; i < vals.length; i++) {
+    if (norm_(vals[i][1]) === norm_(studentId) && norm_(vals[i][5]) === norm_(unit) && !vals[i][13]) {
+      sh.getRange(i + 2, 14).setValue(now);
+      sh.getRange(i + 2, 15).setValue(actor);
+    }
+  }
+}
+
+function resetProject_(studentId, unit, actor) {
+  var record = projectRecord_(studentId, unit);
+  if (!record) return;
+  if (record.driveFileId) {
+    try { DriveApp.getFileById(record.driveFileId).setTrashed(true); }
+    catch (err) {}
+  }
+  var sh = sheetFor_(TAB_PROJECTS, HEAD[TAB_PROJECTS]);
+  sh.getRange(record.row, 22).setValue('Reset');
+  sh.getRange(record.row, 23).setValue(new Date());
+  sh.getRange(record.row, 24).setValue(actor);
+}
+
+function purgeStudent_(studentId) {
+  var id = norm_(studentId);
+  var removed = 0;
+
+  var projects = sheetFor_(TAB_PROJECTS, HEAD[TAB_PROJECTS]);
+  if (projects.getLastRow() >= 2) {
+    var pvals = projects.getRange(2, 1, projects.getLastRow() - 1, HEAD[TAB_PROJECTS].length).getValues();
+    pvals.forEach(function (r) {
+      if (norm_(r[1]) === id && r[9]) {
+        try { DriveApp.getFileById(String(r[9])).setTrashed(true); }
+        catch (err) {}
+      }
+    });
+  }
+
+  [
+    { name: TAB_MASTER, col: 2 },
+    { name: TAB_MANAGEMENT, col: 1 },
+    { name: TAB_PROGRESS, col: 2 },
+    { name: TAB_TESTS, col: 2 },
+    { name: TAB_PROJECTS, col: 2 },
+    { name: TAB_DOUBTS, col: 2 },
+    { name: TAB_SESSIONS, col: 2 },
+    { name: TAB_INTEGRITY, col: 2 }
+  ].forEach(function (t) {
+    var sh = SpreadsheetApp.getActive().getSheetByName(t.name);
+    if (!sh || sh.getLastRow() < 2) return;
+    var vals = sh.getRange(2, t.col, sh.getLastRow() - 1, 1).getValues();
+    for (var i = vals.length - 1; i >= 0; i--) {
+      if (norm_(vals[i][0]) === id) { sh.deleteRow(i + 2); removed++; }
+    }
+  });
+  refreshAll();
+  return removed;
+}
+
+/* ========================================================================== */
+/* DATA GATHERING AND PROGRESS CALCULATION                                    */
+/* ========================================================================== */
+
+function gatherAll_() {
+  var students = [];
+  var byId = {};
+  masterRows_().filter(function (a) { return a.role === 'Student'; }).forEach(function (a) {
+    var s = {
+      account: a,
+      progress: {}, tests: {}, projects: {}, minutes: 0, sessions: 0,
+      doubts: 0, flags: 0, flagKinds: {}, lastDoubts: []
+    };
+    students.push(s);
+    byId[norm_(a.id)] = s;
   });
 
-  rows(TAB_PROJECTS).forEach(function (r) {
-    if (!r[1]) return;
-    seed(norm(r[1])).project = { when: r[0], unit: r[3], name: r[4], link: r[5] };
+  rowsByHeaders_(TAB_PROGRESS, HEAD[TAB_PROGRESS]).forEach(function (r) {
+    var s = byId[norm_(r[1])]; if (!s) return;
+    s.progress[String(r[6])] = {
+      updatedAt: r[0], unit: r[5], stepId: r[6], stepType: r[7], stepName: r[8],
+      mcqBest: Number(r[9]) || 0, mcqTotal: Number(r[10]) || 0,
+      tasksCompleted: Number(r[12]) || 0, tasksTotal: Number(r[13]) || 0,
+      taskIds: parseJsonArray_(r[14]), status: r[15], startedAt: r[16], completedAt: r[17]
+    };
   });
 
-  rows(TAB_SESSIONS).forEach(function (r) {
-    if (!r[1]) return;
-    var s = seed(norm(r[1]));
+  rowsByHeaders_(TAB_TESTS, HEAD[TAB_TESTS]).forEach(function (r) {
+    var s = byId[norm_(r[1])]; if (!s) return;
+    var unit = String(r[5] || '');
+    if (!s.tests[unit]) s.tests[unit] = { attempts: [], best: null, total: 0, passed: false, resetAt: null };
+    if (r[13]) {
+      if (!s.tests[unit].resetAt || r[13] > s.tests[unit].resetAt) s.tests[unit].resetAt = r[13];
+      return;
+    }
+    s.tests[unit].attempts.push({
+      when: r[0], score: Number(r[7]) || 0, total: Number(r[8]) || 0,
+      pct: normalPercent_(r[9]), result: r[10], attempt: r[11], reason: r[12]
+    });
+    s.tests[unit].total = Number(r[8]) || s.tests[unit].total;
+    if (s.tests[unit].best == null || Number(r[7]) > s.tests[unit].best) s.tests[unit].best = Number(r[7]);
+    if (String(r[10]) === 'Pass') s.tests[unit].passed = true;
+  });
+
+  rowsByHeaders_(TAB_PROJECTS, HEAD[TAB_PROJECTS]).forEach(function (r, idx) {
+    var s = byId[norm_(r[1])]; if (!s) return;
+    var p = projectFromValues_(r, idx + 2);
+    s.projects[p.unit] = p;
+  });
+
+  rowsByHeaders_(TAB_SESSIONS, HEAD[TAB_SESSIONS]).forEach(function (r) {
+    var s = byId[norm_(r[1])]; if (!s) return;
     s.minutes += Number(r[5]) || 0;
     s.sessions++;
   });
 
-  rows(TAB_INTEGRITY).forEach(function (r) {
-    if (!r[1]) return;
-    var s = seed(norm(r[1]));
-    s.flags++;
-    s.flagKinds[r[3]] = (s.flagKinds[r[3]] || 0) + 1;
-  });
-
-  rows(TAB_DOUBTS).forEach(function (r) {
-    if (!r[1]) return;
-    var s = seed(norm(r[1]));
+  rowsByHeaders_(TAB_DOUBTS, HEAD[TAB_DOUBTS]).forEach(function (r) {
+    var s = byId[norm_(r[1])]; if (!s) return;
     s.doubts++;
-    s.lastDoubts.push({ when: r[0], context: r[3], q: r[4] });
-    if (s.lastDoubts.length > 5) s.lastDoubts.shift();
+    s.lastDoubts.push({ when: r[0], context: r[3], question: r[4] });
+    if (s.lastDoubts.length > 10) s.lastDoubts.shift();
   });
 
-  return { students: students, order: order, topics: topics, days: days };
-}
-
-/* ====================================================================== */
-/*  CLASS OVERVIEW — the master sheet                                     */
-/* ====================================================================== */
-
-function buildOverview(data) {
-  data = data || gather();
-  var sh = SpreadsheetApp.getActive().getSheetByName(TAB_OVERVIEW) ||
-           SpreadsheetApp.getActive().insertSheet(TAB_OVERVIEW);
-  sh.clear();
-  sh.getCharts().forEach(function (c) { sh.removeChart(c); });
-
-  var head = ['Student ID', 'Name', 'Topics Done', 'Tasks Passed', 'Avg Quiz %',
-              'Test Best', 'Test %', 'Test Result', 'Attempts', 'Project',
-              'Minutes On Site', 'Sessions', 'Flags', 'Doubts Asked',
-              'Last Seen', 'Days Since', 'Status'];
-  sh.appendRow(head);
-
-  var out = [];
-  data.order.forEach(function (id) {
-    var s = data.students[id];
-    var qs = [], k;
-    for (k in s.quiz) if (s.quiz.hasOwnProperty(k)) qs.push(s.quiz[k]);
-    var avgQuiz = qs.length ? qs.reduce(function (a, b) { return a + b; }, 0) / qs.length : '';
-    var since = s.lastSeen instanceof Date
-      ? Math.floor((new Date() - s.lastSeen) / 86400000) : '';
-
-    out.push([
-      s.id, s.name, s.completed, s.tasks, avgQuiz,
-      s.bestTest == null ? '' : s.bestTest,
-      s.bestTest == null || !s.testTotal ? '' : s.bestTest / s.testTotal,
-      s.testAttempts ? (s.testPassed ? 'Pass' : 'Fail') : '',
-      s.testAttempts, s.project ? s.project.link : '',
-      Math.round(s.minutes), s.sessions, s.flags, s.doubts,
-      s.lastSeen || '', since, statusOf(s, since)
-    ]);
+  rowsByHeaders_(TAB_INTEGRITY, HEAD[TAB_INTEGRITY]).forEach(function (r) {
+    var s = byId[norm_(r[1])]; if (!s) return;
+    s.flags++;
+    s.flagKinds[String(r[3] || '')] = (s.flagKinds[String(r[3] || '')] || 0) + 1;
   });
 
-  if (out.length) sh.getRange(2, 1, out.length, head.length).setValues(out);
-
-  sh.getRange(1, 1, 1, head.length).setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-  sh.setFrozenRows(1);
-  sh.setFrozenColumns(2);
-  if (out.length) {
-    sh.getRange(2, 5, out.length, 1).setNumberFormat('0%');
-    sh.getRange(2, 7, out.length, 1).setNumberFormat('0%');
-    sh.getRange(2, 15, out.length, 1).setNumberFormat('dd-mmm-yyyy hh:mm');
-
-    band(sh.getRange(2, 5, out.length, 1));                                    // avg quiz
-    band(sh.getRange(2, 7, out.length, 1));                                    // test %
-    flagScale(sh.getRange(2, 13, out.length, 1));                              // flags
-    statusColours(sh.getRange(2, 17, out.length, 1));
-    sh.getRange(1, 1, out.length + 1, head.length).createFilter();
-  }
-  sh.autoResizeColumns(1, head.length);
-  return sh;
+  students.forEach(calculateSnapshot_);
+  return { students: students, byId: byId, schema: courseSchema_() };
 }
 
-function statusOf(s, since) {
-  if (s.project) return 'Unit complete';
-  if (s.flags >= 5) return 'Check integrity';
-  if (s.testAttempts >= 2 && !s.testPassed) return 'Struggling';
-  if (since !== '' && since >= 7 && !s.project) return 'Inactive';
-  if (s.completed === 0 && s.sessions > 0) return 'Not started';
-  return 'On track';
-}
+function calculateSnapshot_(s) {
+  var schema = courseSchema_();
+  var units = schema.units || [];
+  if (!units.length) units = inferUnits_(s);
 
-/* ====================================================================== */
-/*  DASHBOARD — numbers and charts                                        */
-/* ====================================================================== */
+  var totalSteps = 0, stepsDone = 0, weightedTotal = 0;
+  var unitSummaries = [], testSummaries = [], projectSummaries = [];
 
-function buildDashboard(data) {
-  data = data || gather();
-  var ss = SpreadsheetApp.getActive();
-  var sh = ss.getSheetByName(TAB_DASH) || ss.insertSheet(TAB_DASH);
-  sh.clear();
-  sh.getCharts().forEach(function (c) { sh.removeChart(c); });
+  units.forEach(function (u) {
+    var topicSteps = u.steps || [];
+    var topicDone = topicSteps.filter(function (step) {
+      return s.progress[step.id] && s.progress[step.id].status === 'Completed';
+    }).length;
+    var test = s.tests[u.unit] || { attempts: [], best: null, total: 0, passed: false };
+    var project = s.projects[u.unit];
+    var projectDone = !!project && project.submissionStatus !== 'Reset';
+    var unitTotal = topicSteps.length + (u.testId ? 1 : 0) + (u.projectId ? 1 : 0);
+    var unitDone = topicDone + (test.passed ? 1 : 0) + (projectDone ? 1 : 0);
+    totalSteps += unitTotal;
+    stepsDone += unitDone;
 
-  var ids = data.order, N = ids.length;
-  var active7 = 0, complete = 0, passed = 0, attempted = 0, flagged = 0, minutes = 0, projects = 0;
-  var now = new Date();
+    var topicPct = topicSteps.length ? topicDone / topicSteps.length : 0;
+    var weighted = topicPct * 0.60 + (test.passed ? 0.20 : 0) + (projectDone ? 0.20 : 0);
+    weightedTotal += weighted;
 
-  ids.forEach(function (id) {
-    var s = data.students[id];
-    if (s.lastSeen instanceof Date && (now - s.lastSeen) < 7 * 86400000) active7++;
-    if (s.project) { complete++; projects++; }
-    if (s.testAttempts) attempted++;
-    if (s.testPassed) passed++;
-    if (s.flags >= 3) flagged++;
-    minutes += s.minutes;
+    unitSummaries.push(u.unit + ': ' + unitDone + '/' + unitTotal + ' (' + Math.round((unitTotal ? unitDone / unitTotal : 0) * 100) + '%)');
+    testSummaries.push(u.unit + ': ' + (test.attempts.length ? ((test.best == null ? 0 : test.best) + '/' + (test.total || 0) + (test.passed ? ' Pass' : ' Not cleared')) : 'Not attempted'));
+    projectSummaries.push(u.unit + ': ' + (!project ? 'Not submitted' : project.submissionStatus));
   });
 
-  sh.getRange('A1').setValue('AbhyasLab — Faculty Dashboard')
-    .setFontSize(18).setFontWeight('bold').setFontColor(INK);
-  sh.getRange('A2').setValue('Last refreshed ' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd MMM yyyy, HH:mm') +
-    '   ·   AbhyasLab → Refresh dashboard & overview')
-    .setFontColor('#6A7089');
+  if (!units.length) {
+    var progressRows = Object.keys(s.progress);
+    totalSteps = progressRows.length;
+    stepsDone = progressRows.filter(function (id) { return s.progress[id].status === 'Completed'; }).length;
+  }
 
-  var kpis = [
-    ['Students registered', N],
-    ['Active in last 7 days', active7],
-    ['Test attempted', attempted],
-    ['Test passed', passed],
-    ['Projects submitted', projects],
-    ['Students with 3+ flags', flagged],
-    ['Total hours on site', Math.round(minutes / 6) / 10],
-    ['Average minutes each', N ? Math.round(minutes / N) : 0]
-  ];
-  sh.getRange(4, 1, kpis.length, 2).setValues(kpis);
-  sh.getRange(4, 1, kpis.length, 1).setFontWeight('bold');
-  sh.getRange(4, 1, kpis.length, 2).setBackground('#F7F5EF').setBorder(true, true, true, true, true, true, '#DFDBCD', null);
+  var days = s.account.lastSeen instanceof Date
+    ? Math.max(0, Math.floor((Date.now() - s.account.lastSeen.getTime()) / 86400000)) : '';
+  var status = s.account.status === 'Blocked' ? 'Blocked'
+    : (!s.account.profileComplete ? 'Profile incomplete'
+      : (totalSteps && stepsDone === totalSteps ? 'Completed'
+      : (days !== '' && days >= INACTIVE_DAYS ? 'Inactive' : 'Active')));
 
-  /* ---- topic table: how far the class gets, and where marks drop ---- */
-  var tNames = Object.keys(data.topics).sort();
-  var tRows = tNames.map(function (t) {
-    var o = data.topics[t];
-    var att = Object.keys(o.attempted).length;
-    var don = Object.keys(o.completed).length;
-    var avg = o.scores.length ? o.scores.reduce(function (a, b) { return a + b; }, 0) / o.scores.length : '';
-    return [t, att, don, avg, att ? don / att : ''];
+  s.stepsDone = stepsDone;
+  s.stepsTotal = totalSteps;
+  s.stepProgress = totalSteps ? stepsDone / totalSteps : 0;
+  s.weightedProgress = units.length ? weightedTotal / units.length : s.stepProgress;
+  s.unitSummary = unitSummaries.join('\n');
+  s.testSummary = testSummaries.join('\n');
+  s.projectSummary = projectSummaries.join('\n');
+  s.daysInactive = days;
+  s.displayStatus = status;
+  s.facultyOwners = sectionOwners_(s.account.section);
+  return s;
+}
+
+function inferUnits_(s) {
+  var map = {};
+  Object.keys(s.progress).forEach(function (id) {
+    var p = s.progress[id];
+    map[p.unit] = map[p.unit] || { unit: p.unit, title: p.unit, steps: [], testId: '', projectId: '' };
+    map[p.unit].steps.push({ id: p.stepId, type: p.stepType, title: p.stepName });
   });
-
-  var tTop = 14;
-  sh.getRange(tTop - 1, 1).setValue('Topic performance').setFontWeight('bold').setFontSize(13);
-  sh.getRange(tTop, 1, 1, 5).setValues([['Topic', 'Attempted', 'Completed', 'Avg quiz %', 'Completion rate']])
-    .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-  if (tRows.length) {
-    sh.getRange(tTop + 1, 1, tRows.length, 5).setValues(tRows);
-    sh.getRange(tTop + 1, 4, tRows.length, 2).setNumberFormat('0%');
-    band(sh.getRange(tTop + 1, 4, tRows.length, 1));
-    band(sh.getRange(tTop + 1, 5, tRows.length, 1));
-  }
-
-  /* ---- test outcome split ---- */
-  var oTop = tTop + tRows.length + 3;
-  sh.getRange(oTop - 1, 1).setValue('Test outcomes').setFontWeight('bold').setFontSize(13);
-  var outcome = [['Outcome', 'Students'],
-                 ['Passed', passed],
-                 ['Failed so far', Math.max(0, attempted - passed)],
-                 ['Not attempted', Math.max(0, N - attempted)]];
-  sh.getRange(oTop, 1, 4, 2).setValues(outcome);
-  sh.getRange(oTop, 1, 1, 2).setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-
-  /* ---- daily active students ---- */
-  var dKeys = Object.keys(data.days).sort().slice(-21);
-  var dTop = oTop + 6;
-  sh.getRange(dTop - 1, 1).setValue('Daily active students (last 21 active days)').setFontWeight('bold').setFontSize(13);
-  sh.getRange(dTop, 1, 1, 2).setValues([['Day', 'Students']])
-    .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-  if (dKeys.length) {
-    sh.getRange(dTop + 1, 1, dKeys.length, 2).setValues(
-      dKeys.map(function (k) { return [k, Object.keys(data.days[k]).length]; }));
-  }
-
-  /* ---- most time on site ---- */
-  var top = ids.slice().sort(function (a, b) { return data.students[b].minutes - data.students[a].minutes; }).slice(0, 10);
-  var mTop = dTop + Math.max(dKeys.length, 1) + 3;
-  sh.getRange(mTop - 1, 1).setValue('Most time on site').setFontWeight('bold').setFontSize(13);
-  sh.getRange(mTop, 1, 1, 2).setValues([['Student', 'Minutes']])
-    .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-  if (top.length) {
-    sh.getRange(mTop + 1, 1, top.length, 2).setValues(top.map(function (id) {
-      return [data.students[id].name + ' (' + data.students[id].id + ')', Math.round(data.students[id].minutes)];
-    }));
-  }
-
-  /* ---- integrity ---- */
-  var kinds = {};
-  ids.forEach(function (id) {
-    var fk = data.students[id].flagKinds, k;
-    for (k in fk) if (fk.hasOwnProperty(k)) kinds[k] = (kinds[k] || 0) + fk[k];
+  Object.keys(s.tests).forEach(function (unit) {
+    map[unit] = map[unit] || { unit: unit, title: unit, steps: [], testId: 'test:' + unit, projectId: '' };
+    map[unit].testId = 'test:' + unit;
   });
-  var kNames = Object.keys(kinds).sort();
-  var iTop = mTop + Math.max(top.length, 1) + 3;
-  sh.getRange(iTop - 1, 1).setValue('Integrity events').setFontWeight('bold').setFontSize(13);
-  sh.getRange(iTop, 1, 1, 2).setValues([['Event', 'Count']])
-    .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-  if (kNames.length) {
-    sh.getRange(iTop + 1, 1, kNames.length, 2).setValues(
-      kNames.map(function (k) { return [k, kinds[k]]; }));
-  } else {
-    sh.getRange(iTop + 1, 1).setValue('Nothing flagged yet.');
-  }
-
-  /* ---- charts, stacked down column E ---- */
-  if (tRows.length) {
-    addChart(sh, Charts.ChartType.COLUMN, [sh.getRange(tTop, 1, tRows.length + 1, 3)],
-             'Attempted vs completed, by topic', 4, 5);
-    addChart(sh, Charts.ChartType.BAR, [sh.getRange(tTop, 1, tRows.length + 1, 1),
-                                        sh.getRange(tTop, 4, tRows.length + 1, 1)],
-             'Average quiz score by topic (lowest = hardest)', 22, 5);
-  }
-  addChart(sh, Charts.ChartType.PIE, [sh.getRange(oTop, 1, 4, 2)], 'Test outcomes', 40, 5);
-  if (dKeys.length) {
-    addChart(sh, Charts.ChartType.LINE, [sh.getRange(dTop, 1, dKeys.length + 1, 2)],
-             'Daily active students', 58, 5);
-  }
-  if (top.length) {
-    addChart(sh, Charts.ChartType.BAR, [sh.getRange(mTop, 1, top.length + 1, 2)],
-             'Minutes on site — top 10', 76, 5);
-  }
-  if (kNames.length) {
-    addChart(sh, Charts.ChartType.COLUMN, [sh.getRange(iTop, 1, kNames.length + 1, 2)],
-             'Integrity events by type', 94, 5);
-  }
-
-  sh.setColumnWidth(1, 260);
-  sh.autoResizeColumns(2, 4);
-  return sh;
-}
-
-function addChart(sh, type, ranges, title, row, col) {
-  var b = sh.newChart().setChartType(type)
-    .setPosition(row, col, 0, 0)
-    .setOption('title', title)
-    .setOption('width', 620).setOption('height', 340)
-    .setOption('legend', { position: 'bottom' })
-    .setOption('colors', [AMBER, GREEN, RED, '#27386B']);
-  ranges.forEach(function (r) { b.addRange(r); });
-  sh.insertChart(b.build());
-}
-
-/* ====================================================================== */
-/*  STUDENT REPORT                                                        */
-/* ====================================================================== */
-
-/** Puts the roll-number dropdown in B2 of the report tab. */
-function ensureReportPicker() {
-  var ss = SpreadsheetApp.getActive();
-  var sh = ss.getSheetByName(TAB_REPORT) || ss.insertSheet(TAB_REPORT);
-  var master = sheetFor(TAB_STUDENTS, HEAD[TAB_STUDENTS]);
-  var last = Math.max(master.getLastRow(), 2);
-
-  sh.getRange('A2').setValue('Student ID').setFontWeight('bold');
-  var rule = SpreadsheetApp.newDataValidation()
-    .requireValueInRange(master.getRange(2, 2, last - 1, 1), true)
-    .setAllowInvalid(true).build();
-  sh.getRange('B2').setDataValidation(rule);
-  sh.getRange('C2').setValue('← pick a roll number, the report rebuilds itself').setFontColor('#6A7089');
-}
-
-/** Simple trigger: changing B2 on the report tab rebuilds it. */
-function onEdit(e) {
-  try {
-    if (!e || !e.range) return;
-    if (e.range.getSheet().getName() !== TAB_REPORT) return;
-    if (e.range.getA1Notation() !== 'B2') return;
-    buildStudentReport();
-  } catch (err) { /* never let a trigger throw at the user */ }
-}
-
-function promptStudentReport() {
-  var ui = SpreadsheetApp.getUi();
-  var res = ui.prompt('Student report', 'Enter the roll number:', ui.ButtonSet.OK_CANCEL);
-  if (res.getSelectedButton() !== ui.Button.OK) return;
-  var id = res.getResponseText().trim();
-  if (!id) return;
-  var ss = SpreadsheetApp.getActive();
-  var sh = ss.getSheetByName(TAB_REPORT) || ss.insertSheet(TAB_REPORT);
-  sh.getRange('B2').setValue(id);
-  buildStudentReport();
-  ss.setActiveSheet(sh);
-}
-
-function buildStudentReport() {
-  var ss = SpreadsheetApp.getActive();
-  var sh = ss.getSheetByName(TAB_REPORT) || ss.insertSheet(TAB_REPORT);
-  var wanted = String(sh.getRange('B2').getValue() || '').trim();
-
-  sh.getCharts().forEach(function (c) { sh.removeChart(c); });
-  if (sh.getLastRow() > 3) sh.getRange(4, 1, sh.getLastRow() - 3, Math.max(sh.getLastColumn(), 6)).clear();
-
-  sh.getRange('A1').setValue('Student Report')
-    .setFontSize(18).setFontWeight('bold').setFontColor(INK);
-  ensureReportPicker();
-  if (!wanted) { sh.getRange('A4').setValue('Pick a roll number in B2.'); return; }
-
-  var data = gather();
-  var s = data.students[norm(wanted)];
-  if (!s) { sh.getRange('A4').setValue('No record found for "' + wanted + '".'); return; }
-
-  var r = 4;
-  var put = function (label, value) { sh.getRange(r, 1).setValue(label).setFontWeight('bold'); sh.getRange(r, 2).setValue(value); r++; };
-  var head = function (text) { r++; sh.getRange(r, 1).setValue(text).setFontWeight('bold').setFontSize(13).setFontColor(INK); r++; };
-
-  var since = s.lastSeen instanceof Date ? Math.floor((new Date() - s.lastSeen) / 86400000) : '';
-
-  head('Who');
-  put('Name', s.name);
-  put('Roll number', s.id);
-  put('Registered', s.registered || '');
-  put('Last seen', s.lastSeen || '');
-  put('Days since last seen', since);
-  put('Furthest point', s.furthest || '');
-  put('Status', statusOf(s, since));
-
-  head('Time on the system');
-  put('Total minutes', Math.round(s.minutes));
-  put('Sessions', s.sessions);
-  put('Average session (min)', s.sessions ? Math.round(s.minutes / s.sessions) : 0);
-
-  head('Topics');
-  var tHeadRow = r;
-  sh.getRange(r, 1, 1, 4).setValues([['Topic', 'Best quiz', 'Quiz %', 'Tasks passed']])
-    .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-  r++;
-  var tNames = Object.keys(data.topics).sort();
-  var chartFirst = r, weakest = null;
-  tNames.forEach(function (t) {
-    var mine = s.topics[t];
-    var pct  = s.quiz[t];
-    sh.getRange(r, 1, 1, 4).setValues([[t, mine && mine.quiz ? mine.quiz : '—',
-                                        pct == null ? '' : pct, mine ? mine.tasks : 0]]);
-    if (pct != null && (weakest === null || pct < weakest.pct)) weakest = { t: t, pct: pct };
-    r++;
+  Object.keys(s.projects).forEach(function (unit) {
+    map[unit] = map[unit] || { unit: unit, title: unit, steps: [], testId: '', projectId: 'proj:' + unit };
+    map[unit].projectId = 'proj:' + unit;
   });
-  var chartLast = r - 1;
-  if (chartLast >= chartFirst) {
-    sh.getRange(chartFirst, 3, chartLast - chartFirst + 1, 1).setNumberFormat('0%');
-    band(sh.getRange(chartFirst, 3, chartLast - chartFirst + 1, 1));
-  }
+  return Object.keys(map).sort().map(function (k) { return map[k]; });
+}
 
-  head('Test');
-  put('Attempts', s.testAttempts);
-  put('Best score', s.bestTest == null ? '—' : s.bestTest + ' / ' + s.testTotal);
-  put('Result', s.testAttempts ? (s.testPassed ? 'Pass' : 'Not cleared') : 'Not attempted');
-  if (s.tests.length) {
-    sh.getRange(r, 1, 1, 5).setValues([['When', 'Score', 'Percent', 'Result', 'How it ended']])
-      .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-    r++;
-    s.tests.forEach(function (t) {
-      sh.getRange(r, 1, 1, 5).setValues([[t.when, t.score + '/' + t.total, t.pct, t.result, t.how]]);
-      sh.getRange(r, 3).setNumberFormat('0%');
-      r++;
+function studentSyncState_(studentId) {
+  var data = gatherAll_();
+  var s = data.byId[norm_(studentId)];
+  if (!s) return { progress: {}, tests: {}, projects: {} };
+  var projects = {};
+  Object.keys(s.projects).forEach(function (unit) {
+    projects[unit] = projectPublicRecord_(s.projects[unit], false);
+  });
+  return {
+    progress: s.progress,
+    tests: s.tests,
+    projects: projects,
+    summary: snapshotPublic_(s)
+  };
+}
+
+function snapshotPublic_(s) {
+  return {
+    id: s.account.id, name: s.account.name, email: s.account.email,
+    section: s.account.section, status: s.displayStatus,
+    registered: dateIso_(s.account.registered), lastSeen: dateIso_(s.account.lastSeen),
+    currentUnit: s.account.currentUnit, currentStep: s.account.currentStep,
+    daysInactive: s.daysInactive, stepsDone: s.stepsDone, stepsTotal: s.stepsTotal,
+    stepProgress: s.stepProgress, weightedProgress: s.weightedProgress,
+    unitSummary: s.unitSummary, testSummary: s.testSummary,
+    projectSummary: s.projectSummary, minutes: round1_(s.minutes), sessions: s.sessions,
+    doubts: s.doubts, flags: s.flags, facultyOwners: s.facultyOwners
+  };
+}
+
+function snapshotDetailed_(s) {
+  var base = snapshotPublic_(s);
+  base.progress = s.progress;
+  base.tests = s.tests;
+  base.projects = {};
+  Object.keys(s.projects).forEach(function (unit) { base.projects[unit] = projectPublicRecord_(s.projects[unit], true); });
+  base.flagKinds = s.flagKinds;
+  base.lastDoubts = s.lastDoubts;
+  return base;
+}
+
+function dashboardSummary_(students) {
+  var summary = {
+    total: students.length, active: 0, inactive: 0, blocked: 0, completed: 0,
+    projectsPending: 0, studentsNeedingAttention: 0, doubts: 0, minutes: 0
+  };
+  students.forEach(function (s) {
+    if (s.displayStatus === 'Active') summary.active++;
+    if (s.displayStatus === 'Inactive') summary.inactive++;
+    if (s.displayStatus === 'Blocked') summary.blocked++;
+    if (s.displayStatus === 'Completed') summary.completed++;
+    if (s.flags >= 3 || (s.daysInactive !== '' && s.daysInactive >= INACTIVE_DAYS) || /Not cleared/.test(s.testSummary)) summary.studentsNeedingAttention++;
+    summary.doubts += s.doubts;
+    summary.minutes += s.minutes;
+    Object.keys(s.projects).forEach(function (u) {
+      if (s.projects[u].submissionStatus === 'Pending Faculty Approval') summary.projectsPending++;
     });
-  }
-
-  head('Project');
-  if (s.project) {
-    put('Submitted', s.project.when);
-    put('Project', s.project.name);
-    put('Link', s.project.link);
-  } else {
-    put('Submitted', 'Not yet');
-  }
-
-  head('Integrity');
-  put('Total flags', s.flags);
-  var fk = Object.keys(s.flagKinds).sort();
-  if (fk.length) {
-    sh.getRange(r, 1, 1, 2).setValues([['Event', 'Times']])
-      .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-    r++;
-    fk.forEach(function (k) { sh.getRange(r, 1, 1, 2).setValues([[k, s.flagKinds[k]]]); r++; });
-  } else {
-    put('Events', 'None');
-  }
-
-  head('Where they are struggling');
-  var notes = [];
-  if (weakest && weakest.pct < 0.7) notes.push('Lowest quiz score is in "' + weakest.t + '" at ' + Math.round(weakest.pct * 100) + '%.');
-  if (s.testAttempts >= 2 && !s.testPassed) notes.push('Has sat the test ' + s.testAttempts + ' times without passing.');
-  if (s.flags >= 3) notes.push(s.flags + ' integrity events — worth a conversation.');
-  if (since !== '' && since >= 7) notes.push('No activity for ' + since + ' days.');
-  if (s.completed === 0 && s.sessions > 0) notes.push('Has logged in but finished no topic yet.');
-  if (s.minutes > 0 && s.completed > 0 && s.minutes / s.completed > 60) notes.push('Averaging ' + Math.round(s.minutes / s.completed) + ' minutes per topic — well above the class norm.');
-  if (!notes.length) notes.push('Nothing concerning. On track.');
-  notes.forEach(function (n) { sh.getRange(r, 1).setValue('•  ' + n); r++; });
-
-  head('Recent doubts asked');
-  put('Total asked', s.doubts);
-  if (s.lastDoubts.length) {
-    sh.getRange(r, 1, 1, 3).setValues([['When', 'Topic', 'Question']])
-      .setFontWeight('bold').setBackground(INK).setFontColor(PAPER);
-    r++;
-    s.lastDoubts.slice().reverse().forEach(function (d) {
-      sh.getRange(r, 1, 1, 3).setValues([[d.when, d.context, d.q]]);
-      r++;
-    });
-  }
-
-  if (chartLast >= chartFirst) {
-    addChart(sh, Charts.ChartType.COLUMN,
-      [sh.getRange(tHeadRow, 1, chartLast - tHeadRow + 1, 1),
-       sh.getRange(tHeadRow, 3, chartLast - tHeadRow + 1, 1)],
-      s.name + ' — quiz score by topic', 4, 6);
-  }
-
-  sh.setColumnWidth(1, 240);
-  sh.setColumnWidth(2, 220);
-  sh.autoResizeColumns(3, 3);
-}
-
-/* ====================================================================== */
-/*  DELETING A STUDENT                                                    */
-/* ====================================================================== */
-
-function deleteStudentPrompt() {
-  var ui = SpreadsheetApp.getUi();
-  var res = ui.prompt('Delete a student',
-    'Roll number to delete.\n\nEvery row for this student is removed from every tab, and the roll number is blocked so it cannot register again.',
-    ui.ButtonSet.OK_CANCEL);
-  if (res.getSelectedButton() !== ui.Button.OK) return;
-
-  var id = res.getResponseText().trim();
-  if (!id) return;
-
-  var confirm = ui.alert('Delete ' + id + '?',
-    'This cannot be undone. Continue?', ui.ButtonSet.YES_NO);
-  if (confirm !== ui.Button.YES) return;
-
-  var removed = purgeStudent(id, true);
-  ui.alert('Deleted', id + ' removed.\n\n' + removed + ' rows deleted across all tabs.\nThe roll number is now blocked.', ui.ButtonSet.OK);
-  refreshAll();
-}
-
-/**
- * Wipe every trace of a roll number. If `block` is true the ID goes on the
- * blocklist, so the site refuses it at registration even if the student still
- * has data sitting in their own browser.
- */
-function purgeStudent(studentId, block) {
-  var target = norm(studentId), removed = 0;
-
-  var tabs = [
-    { name: TAB_STUDENTS,  col: 2 },
-    { name: TAB_ACTIVITY,  col: 2 },
-    { name: TAB_TESTS,     col: 2 },
-    { name: TAB_PROJECTS,  col: 2 },
-    { name: TAB_DOUBTS,    col: 2 },
-    { name: TAB_SESSIONS,  col: 2 },
-    { name: TAB_INTEGRITY, col: 2 }
-  ];
-
-  tabs.forEach(function (t) {
-    var sh = sheetFor(t.name, HEAD[t.name]);
-    var last = sh.getLastRow();
-    if (last < 2) return;
-    var vals = sh.getRange(2, t.col, last - 1, 1).getValues();
-    for (var i = vals.length - 1; i >= 0; i--) {
-      if (norm(vals[i][0]) === target) { sh.deleteRow(i + 2); removed++; }
-    }
   });
-
-  if (block && !isBlocked(studentId)) {
-    sheetFor(TAB_BLOCK, HEAD[TAB_BLOCK]).appendRow([studentId, new Date(), 'Deleted by faculty']);
-  }
-  return removed;
+  summary.minutes = Math.round(summary.minutes);
+  return summary;
 }
 
-function unblockPrompt() {
-  var ui = SpreadsheetApp.getUi();
-  var res = ui.prompt('Unblock a student', 'Roll number to allow back in:', ui.ButtonSet.OK_CANCEL);
-  if (res.getSelectedButton() !== ui.Button.OK) return;
-  var id = norm(res.getResponseText().trim());
-  if (!id) return;
+/* ========================================================================== */
+/* GOOGLE SHEET VIEWS                                                         */
+/* ========================================================================== */
 
-  var sh = sheetFor(TAB_BLOCK, HEAD[TAB_BLOCK]);
-  var last = sh.getLastRow(), gone = 0;
-  if (last >= 2) {
-    var vals = sh.getRange(2, 1, last - 1, 1).getValues();
-    for (var i = vals.length - 1; i >= 0; i--) {
-      if (norm(vals[i][0]) === id) { sh.deleteRow(i + 2); gone++; }
-    }
-  }
-  ui.alert(gone ? 'Unblocked. They can register again.' : 'That roll number was not on the blocklist.');
+function refreshAll() {
+  ensureCoreSheets_();
+  var data = gatherAll_();
+  buildStudentManagement_(data);
+  buildDashboard_(data);
+  ensureStudentReportPicker_();
+  var reportId = SpreadsheetApp.getActive().getSheetByName(TAB_REPORT).getRange('B2').getValue();
+  if (reportId) buildStudentReport_(reportId, data);
 }
 
-/* ====================================================================== */
-/*  EXPORT                                                                */
-/* ====================================================================== */
+function buildStudentManagement_(data) {
+  data = data || gatherAll_();
+  var sh = sheetFor_(TAB_MANAGEMENT, HEAD[TAB_MANAGEMENT]);
+  sh.setConditionalFormatRules([]);
+  sh.getRange(2, 1, Math.max(sh.getMaxRows() - 1, 1), HEAD[TAB_MANAGEMENT].length).clearContent();
 
-function exportOverviewCsv() {
-  var sh = SpreadsheetApp.getActive().getSheetByName(TAB_OVERVIEW);
-  if (!sh || sh.getLastRow() < 2) {
-    SpreadsheetApp.getUi().alert('Nothing to export yet. Run "Refresh dashboard & overview" first.');
+  var rows = data.students.map(managementRow_);
+  if (rows.length) sh.getRange(2, 1, rows.length, HEAD[TAB_MANAGEMENT].length).setValues(rows);
+  styleManagement_(sh, rows.length);
+}
+
+function managementRow_(s) {
+  return [
+    s.account.id, s.account.name, s.account.email, s.account.section,
+    s.displayStatus, s.account.registered || '', s.account.lastSeen || '',
+    s.daysInactive, s.account.currentUnit || '', s.account.currentStep || '',
+    s.stepsDone, s.stepsTotal, s.stepProgress, s.weightedProgress,
+    s.unitSummary, s.testSummary, s.projectSummary, round1_(s.minutes),
+    s.sessions, s.doubts, s.flags, s.facultyOwners.join(', '),
+    'No Action', '', '', ''
+  ];
+}
+
+function refreshStudentManagementRow_(studentId) {
+  var data = gatherAll_();
+  var s = data.byId[norm_(studentId)];
+  var sh = sheetFor_(TAB_MANAGEMENT, HEAD[TAB_MANAGEMENT]);
+  var row = findRow_(sh, 1, studentId);
+  if (!s) {
+    if (row) sh.deleteRow(row);
     return;
   }
-  var vals = sh.getDataRange().getDisplayValues();
-  var csv = vals.map(function (row) {
-    return row.map(function (c) {
-      c = String(c == null ? '' : c);
-      return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c;
-    }).join(',');
-  }).join('\n');
-
-  var name = 'AbhyasLab_Class_Overview_' +
-    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmm') + '.csv';
-  var file = DriveApp.createFile(name, csv, MimeType.CSV);
-  SpreadsheetApp.getUi().alert('Saved to your Drive', name + '\n\n' + file.getUrl(), SpreadsheetApp.getUi().ButtonSet.OK);
+  var values = [managementRow_(s)];
+  if (row) sh.getRange(row, 1, 1, HEAD[TAB_MANAGEMENT].length).setValues(values);
+  else {
+    sh.appendRow(values[0]);
+    row = sh.getLastRow();
+  }
+  styleManagement_(sh, Math.max(sh.getLastRow() - 1, 0));
 }
 
-/* ====================================================================== */
-/*  SMALL HELPERS                                                         */
-/* ====================================================================== */
-
-function norm(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
-
-function dayKey(d) {
-  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+function styleManagement_(sh, count) {
+  styleHeader_(sh, HEAD[TAB_MANAGEMENT].length);
+  sh.setFrozenColumns(2);
+  if (count) {
+    sh.getRange(2, 13, count, 2).setNumberFormat('0%');
+    sh.getRange(2, 6, count, 2).setNumberFormat('dd-mmm-yyyy hh:mm');
+    sh.getRange(2, 15, count, 3).setWrap(true);
+    sh.getRange(2, 23, count, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(ACTIONS, true).setAllowInvalid(false).build()
+    );
+    addStatusRules_(sh.getRange(2, 5, count, 1));
+    addProgressRules_(sh.getRange(2, 13, count, 2));
+  }
+  sh.setColumnWidth(1, 120); sh.setColumnWidth(2, 170); sh.setColumnWidth(3, 210);
+  sh.setColumnWidth(4, 130); sh.setColumnWidth(9, 100); sh.setColumnWidth(10, 220);
+  sh.setColumnWidth(15, 260); sh.setColumnWidth(16, 240); sh.setColumnWidth(17, 240);
+  sh.setColumnWidth(23, 150); sh.setColumnWidth(24, 110); sh.setColumnWidth(25, 130);
+  sh.setColumnWidth(26, 260);
 }
 
-/** Red through amber to green, for percentage columns. */
-function band(range) {
+function buildDashboard_(data) {
+  data = data || gatherAll_();
+  var sh = blankSheet_(TAB_DASHBOARD);
+  sh.clear();
+  sh.getCharts().forEach(function (c) { sh.removeChart(c); });
+  var summary = dashboardSummary_(data.students);
+
+  sh.getRange('A1:H1').merge().setValue('AbhyasLab Faculty Dashboard')
+    .setBackground(INK).setFontColor(PAPER).setFontSize(20).setFontWeight('bold');
+  sh.getRange('A2:H2').merge().setValue('Updated ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm'))
+    .setFontColor('#59617C');
+
+  var cards = [
+    ['Total students', summary.total], ['Active', summary.active],
+    ['Inactive', summary.inactive], ['Blocked', summary.blocked],
+    ['Completed', summary.completed], ['Pending projects', summary.projectsPending],
+    ['Need attention', summary.studentsNeedingAttention], ['Total learning minutes', summary.minutes]
+  ];
+  for (var i = 0; i < cards.length; i++) {
+    var col = (i % 4) * 2 + 1;
+    var row = 4 + Math.floor(i / 4) * 3;
+    sh.getRange(row, col, 2, 2).merge();
+    sh.getRange(row, col).setValue(cards[i][1]).setFontSize(22).setFontWeight('bold')
+      .setHorizontalAlignment('center').setVerticalAlignment('middle')
+      .setBackground(i === 2 || i === 3 || i === 6 ? '#F9DCD7' : '#E8F2F0');
+    sh.getRange(row + 2, col, 1, 2).merge().setValue(cards[i][0])
+      .setHorizontalAlignment('center').setFontWeight('bold').setFontColor('#59617C');
+  }
+
+  var start = 11;
+  sh.getRange(start, 1, 1, 7).setValues([[
+    'Student ID', 'Name', 'Section', 'Status', 'Weighted Progress', 'Last Active', 'Attention'
+  ]]).setBackground(INK).setFontColor(PAPER).setFontWeight('bold');
+  var attention = data.students.slice().sort(function (a, b) {
+    var aScore = (a.flags >= 3 ? 4 : 0) + (a.daysInactive >= INACTIVE_DAYS ? 3 : 0) + (/Not cleared/.test(a.testSummary) ? 2 : 0);
+    var bScore = (b.flags >= 3 ? 4 : 0) + (b.daysInactive >= INACTIVE_DAYS ? 3 : 0) + (/Not cleared/.test(b.testSummary) ? 2 : 0);
+    return bScore - aScore;
+  }).slice(0, 20).map(function (s) {
+    var notes = [];
+    if (s.flags >= 3) notes.push(s.flags + ' integrity flags');
+    if (s.daysInactive !== '' && s.daysInactive >= INACTIVE_DAYS) notes.push(s.daysInactive + ' inactive days');
+    if (/Not cleared/.test(s.testSummary)) notes.push('test not cleared');
+    if (!notes.length) notes.push('on track');
+    return [s.account.id, s.account.name, s.account.section, s.displayStatus,
+      s.weightedProgress, s.account.lastSeen || '', notes.join(', ')];
+  });
+  if (attention.length) {
+    sh.getRange(start + 1, 1, attention.length, 7).setValues(attention);
+    sh.getRange(start + 1, 5, attention.length, 1).setNumberFormat('0%');
+    sh.getRange(start + 1, 6, attention.length, 1).setNumberFormat('dd-mmm-yyyy hh:mm');
+  }
+
+  sh.setFrozenRows(2);
+  sh.setColumnWidth(1, 120); sh.setColumnWidth(2, 180); sh.setColumnWidth(3, 140);
+  sh.setColumnWidth(4, 110); sh.setColumnWidth(5, 140); sh.setColumnWidth(6, 160);
+  sh.setColumnWidth(7, 260);
+}
+
+function ensureStudentReportPicker_() {
+  var sh = blankSheet_(TAB_REPORT);
+  if (sh.getRange('A1').getValue() !== 'Student Report') {
+    sh.clear();
+    sh.getRange('A1:D1').merge().setValue('Student Report')
+      .setBackground(INK).setFontColor(PAPER).setFontSize(18).setFontWeight('bold');
+    sh.getRange('A2').setValue('Student ID').setFontWeight('bold');
+    sh.getRange('C2').setValue('Select a student; the report updates automatically.').setFontColor('#59617C');
+  }
+  var management = sheetFor_(TAB_MANAGEMENT, HEAD[TAB_MANAGEMENT]);
+  sh.getRange('B2').setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInRange(management.getRange('A2:A'), true)
+      .setAllowInvalid(false).build()
+  );
+}
+
+function buildStudentReport_(studentId, data) {
+  data = data || gatherAll_();
+  var s = data.byId[norm_(studentId)];
+  var sh = blankSheet_(TAB_REPORT);
+  var picker = sh.getRange('B2').getValue();
+  sh.getRange('A4:H1000').clearContent().clearFormat();
+  if (!s) return;
+  sh.getRange('B2').setValue(s.account.id);
+
+  var r = 4;
+  function head(text) {
+    sh.getRange(r, 1, 1, 5).merge().setValue(text)
+      .setBackground(INK).setFontColor(PAPER).setFontWeight('bold');
+    r++;
+  }
+  function put(label, value) {
+    sh.getRange(r, 1).setValue(label).setFontWeight('bold');
+    sh.getRange(r, 2).setValue(value);
+    r++;
+  }
+
+  head('Student profile');
+  put('Name', s.account.name); put('Student ID', s.account.id); put('Email', s.account.email);
+  put('Section', s.account.section); put('Status', s.displayStatus);
+  put('Registered', s.account.registered || ''); put('Last active', s.account.lastSeen || '');
+  put('Current unit', s.account.currentUnit || ''); put('Current step', s.account.currentStep || '');
+
+  head('Overall progress');
+  put('Completed steps', s.stepsDone + ' / ' + s.stepsTotal);
+  put('Step progress', s.stepProgress); sh.getRange(r - 1, 2).setNumberFormat('0%');
+  put('Weighted progress', s.weightedProgress); sh.getRange(r - 1, 2).setNumberFormat('0%');
+  put('Unit summary', s.unitSummary);
+
+  head('Time and engagement');
+  put('Total minutes', round1_(s.minutes)); put('Sessions', s.sessions);
+  put('Doubts asked', s.doubts); put('Integrity flags', s.flags);
+
+  head('Topic and checkpoint progress');
+  sh.getRange(r, 1, 1, 8).setValues([[
+    'Unit', 'Step', 'Type', 'MCQ', 'MCQ %', 'Tasks', 'Status', 'Completed At'
+  ]]).setBackground('#31436F').setFontColor(PAPER).setFontWeight('bold');
+  r++;
+  Object.keys(s.progress).sort(function (a, b) {
+    return String(s.progress[a].unit + s.progress[a].stepName).localeCompare(String(s.progress[b].unit + s.progress[b].stepName));
+  }).forEach(function (id) {
+    var p = s.progress[id];
+    sh.getRange(r, 1, 1, 8).setValues([[
+      p.unit, p.stepName, p.stepType,
+      p.mcqTotal ? p.mcqBest + '/' + p.mcqTotal : '—',
+      p.mcqTotal ? p.mcqBest / p.mcqTotal : '',
+      p.tasksCompleted + '/' + p.tasksTotal, p.status, p.completedAt || ''
+    ]]);
+    sh.getRange(r, 5).setNumberFormat('0%');
+    r++;
+  });
+
+  head('Tests');
+  Object.keys(s.tests).sort().forEach(function (unit) {
+    var t = s.tests[unit];
+    put(unit, t.attempts.length ? (t.best + '/' + t.total + (t.passed ? ' — Pass' : ' — Not cleared')) : 'Not attempted');
+  });
+
+  head('Projects');
+  Object.keys(s.projects).sort().forEach(function (unit) {
+    var p = s.projects[unit];
+    put(unit, p.submissionStatus + (p.approvedScore !== '' ? ' — ' + p.approvedScore + '/100' : ''));
+    if (p.url) put('Link', p.url);
+    if (p.facultyFeedback) put('Faculty feedback', p.facultyFeedback);
+  });
+
+  head('Recent doubts');
+  s.lastDoubts.slice().reverse().forEach(function (d) {
+    put(dateIso_(d.when) + ' · ' + d.context, d.question);
+  });
+
+  sh.setColumnWidth(1, 200); sh.setColumnWidth(2, 260); sh.setColumnWidth(3, 130);
+  sh.setColumnWidth(4, 100); sh.setColumnWidth(5, 100); sh.setColumnWidth(6, 100);
+  sh.setColumnWidth(7, 120); sh.setColumnWidth(8, 150);
+  sh.getRange('A1:H' + Math.max(r, 4)).setWrap(true).setVerticalAlignment('top');
+}
+
+function handleManagementEdit(e) {
+  if (!e || !e.range) return;
+  var sh = e.range.getSheet();
+  if (sh.getName() === TAB_REPORT && e.range.getA1Notation() === 'B2') {
+    buildStudentReport_(e.value || '');
+    return;
+  }
+  if (sh.getName() !== TAB_MANAGEMENT || e.range.getColumn() !== 23 || e.range.getRow() < 2) return;
+  var row = e.range.getRow();
+  var id = sh.getRange(row, 1).getValue();
+  var action = sh.getRange(row, 23).getValue();
+  var unit = sh.getRange(row, 24).getValue();
+  var confirmation = sh.getRange(row, 25).getValue();
+  var resultCell = sh.getRange(row, 26);
+  try {
+    if (!action || action === 'No Action') return;
+    var result = executeStudentAction_(action, id, unit, confirmation, 'Sheet faculty action');
+    if (action === 'Delete Permanently') return;
+    resultCell.setValue(result).setFontColor('#1E5B32');
+  } catch (err) {
+    resultCell.setValue(String(err.message || err)).setFontColor('#8C2318');
+  } finally {
+    if (sh.getLastRow() >= row) sh.getRange(row, 23).setValue('No Action');
+  }
+}
+
+function ensureManagementValidation_() {
+  var sh = sheetFor_(TAB_MANAGEMENT, HEAD[TAB_MANAGEMENT]);
+  sh.getRange('W2:W').setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(ACTIONS, true).setAllowInvalid(false).build()
+  );
+}
+
+/* ========================================================================== */
+/* SHEET MENU ACTIONS                                                         */
+/* ========================================================================== */
+
+function addFacultyPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var idRes = ui.prompt('Faculty account', 'Faculty ID:', ui.ButtonSet.OK_CANCEL);
+  if (idRes.getSelectedButton() !== ui.Button.OK) return;
+  var id = cleanId_(idRes.getResponseText());
+  validateIdForRole_(id, 'Faculty');
+  var nameRes = ui.prompt('Faculty account', 'Faculty full name:', ui.ButtonSet.OK_CANCEL);
+  if (nameRes.getSelectedButton() !== ui.Button.OK) return;
+  var name = cleanName_(nameRes.getResponseText());
+  if (name.length < 3) throw new Error('Faculty name is too short.');
+  var pinRes = ui.prompt('Faculty account', 'Private four-digit PIN:', ui.ButtonSet.OK_CANCEL);
+  if (pinRes.getSelectedButton() !== ui.Button.OK) return;
+  var pin = String(pinRes.getResponseText()).trim();
+  validatePin_(pin);
+
+  var account = accountById_(id);
+  var salt = newSalt_();
+  var values = {
+    id: id, role: 'Faculty', name: name, email: account ? account.email : '',
+    section: '', managedSections: account ? account.managedSections : '',
+    status: 'Active', course: 'Python Programming',
+    registered: account ? account.registered : new Date(), lastSeen: account ? account.lastSeen : '',
+    currentUnit: '', currentStep: '', salt: salt, pinHash: pinHash_(id, pin, salt),
+    tokenHash: '', tokenExpiry: '', lastLogin: '', profileComplete: true,
+    notes: account ? account.notes : 'Faculty account created from the Sheet menu.'
+  };
+  if (account) updateMaster_(account.row, values); else appendMaster_(values);
+  ui.alert('Faculty account saved.');
+}
+
+function createSectionPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var idRes = ui.prompt('Create or assign section', 'Faculty ID:', ui.ButtonSet.OK_CANCEL);
+  if (idRes.getSelectedButton() !== ui.Button.OK) return;
+  var faculty = accountById_(idRes.getResponseText());
+  if (!faculty || faculty.role !== 'Faculty') return ui.alert('Faculty ID was not found.');
+  var sectionRes = ui.prompt('Create or assign section', 'Section name:', ui.ButtonSet.OK_CANCEL);
+  if (sectionRes.getSelectedButton() !== ui.Button.OK) return;
+  var section = cleanSection_(sectionRes.getResponseText());
+  var sh = sheetFor_(TAB_SYSTEM, HEAD[TAB_SYSTEM]);
+  var rows = sh.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] === 'Section' && norm_(rows[i][1]) === norm_(section) && norm_(rows[i][3]) === norm_(faculty.id)) {
+      sh.getRange(i + 1, 5).setValue(true);
+      syncManagedSectionsText_(faculty.id);
+      return ui.alert('Section assigned.');
+    }
+  }
+  sh.appendRow(['Section', norm_(section), section, faculty.id, true, new Date(), 'Created from Sheet menu.']);
+  syncManagedSectionsText_(faculty.id);
+  refreshAll();
+  ui.alert('Section created and assigned.');
+}
+
+function selectedManagementStudent_() {
+  var sh = SpreadsheetApp.getActiveSheet();
+  if (sh.getName() !== TAB_MANAGEMENT || sh.getActiveRange().getRow() < 2) {
+    throw new Error('Select a student row in Student_Management first.');
+  }
+  return String(sh.getRange(sh.getActiveRange().getRow(), 1).getValue());
+}
+
+function openSelectedStudentReport() {
+  var id = selectedManagementStudent_();
+  buildStudentReport_(id);
+  SpreadsheetApp.getActive().setActiveSheet(SpreadsheetApp.getActive().getSheetByName(TAB_REPORT));
+}
+function blockSelectedStudent() { executeStudentAction_('Block', selectedManagementStudent_(), '', '', 'Sheet menu'); refreshAll(); }
+function unblockSelectedStudent() { executeStudentAction_('Unblock', selectedManagementStudent_(), '', '', 'Sheet menu'); refreshAll(); }
+function resetSelectedStudentTest() {
+  var id = selectedManagementStudent_();
+  var unit = promptUnit_('Reset test'); if (!unit) return;
+  executeStudentAction_('Reset Test', id, unit, '', 'Sheet menu'); refreshAll();
+}
+function resetSelectedStudentProject() {
+  var id = selectedManagementStudent_();
+  var unit = promptUnit_('Reset project'); if (!unit) return;
+  executeStudentAction_('Reset Project', id, unit, '', 'Sheet menu'); refreshAll();
+}
+function deleteSelectedStudent() {
+  var id = selectedManagementStudent_();
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt('Permanent deletion', 'Type the exact student ID to confirm:', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  executeStudentAction_('Delete Permanently', id, '', res.getResponseText(), 'Sheet menu');
+  ui.alert('Student permanently deleted.');
+}
+function promptUnit_(title) {
+  var res = SpreadsheetApp.getUi().prompt(title, 'Type the unit exactly, for example Unit 1:', SpreadsheetApp.getUi().ButtonSet.OK_CANCEL);
+  return res.getSelectedButton() === SpreadsheetApp.getUi().Button.OK ? res.getResponseText().trim() : '';
+}
+
+/* ========================================================================== */
+/* MASTER SHEET HELPERS                                                       */
+/* ========================================================================== */
+
+function masterRows_() {
+  var sh = sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]);
+  if (sh.getLastRow() < 2) return [];
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, HEAD[TAB_MASTER].length).getValues();
+  return vals.map(function (r, i) { return accountFromValues_(r, i + 2); });
+}
+
+function accountById_(id) {
+  var target = norm_(id);
+  var rows = masterRows_();
+  for (var i = 0; i < rows.length; i++) if (norm_(rows[i].id) === target) return rows[i];
+  return null;
+}
+
+function accountAtRow_(row) {
+  var sh = sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]);
+  return accountFromValues_(sh.getRange(row, 1, 1, HEAD[TAB_MASTER].length).getValues()[0], row);
+}
+
+function accountFromValues_(r, row) {
+  return {
+    row: row, created: r[0], id: String(r[1] || ''), role: String(r[2] || ''),
+    name: String(r[3] || ''), email: String(r[4] || ''), section: String(r[5] || ''),
+    managedSections: String(r[6] || ''), status: String(r[7] || 'Active'),
+    course: String(r[8] || ''), registered: r[9], lastSeen: r[10],
+    currentUnit: String(r[11] || ''), currentStep: String(r[12] || ''),
+    salt: String(r[13] || ''), pinHash: String(r[14] || ''), tokenHash: String(r[15] || ''),
+    authExpires: r[16], lastLogin: r[17], profileComplete: r[18] === true || String(r[18]).toLowerCase() === 'true',
+    blockedOn: r[19], blockedBy: r[20], notes: String(r[21] || '')
+  };
+}
+
+function appendMaster_(x) {
+  var sh = sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]);
+  sh.appendRow(masterValues_(x, null));
+  return sh.getLastRow();
+}
+
+function updateMaster_(row, x) {
+  var existing = accountAtRow_(row);
+  sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]).getRange(row, 1, 1, HEAD[TAB_MASTER].length)
+    .setValues([masterValues_(x, existing)]);
+  return row;
+}
+
+function masterValues_(x, old) {
+  old = old || {};
+  return [
+    old.created || x.created || new Date(), x.id || old.id || '', x.role || old.role || 'Student',
+    x.name != null ? x.name : old.name || '', x.email != null ? x.email : old.email || '',
+    x.section != null ? x.section : old.section || '',
+    x.managedSections != null ? x.managedSections : old.managedSections || '',
+    x.status || old.status || 'Active', x.course || old.course || 'Python Programming',
+    x.registered || old.registered || new Date(), x.lastSeen != null ? x.lastSeen : old.lastSeen || '',
+    x.currentUnit != null ? x.currentUnit : old.currentUnit || '',
+    x.currentStep != null ? x.currentStep : old.currentStep || '',
+    x.salt != null ? x.salt : old.salt || '', x.pinHash != null ? x.pinHash : old.pinHash || '',
+    x.tokenHash != null ? x.tokenHash : old.tokenHash || '',
+    x.tokenExpiry != null ? x.tokenExpiry : old.authExpires || '',
+    x.lastLogin != null ? x.lastLogin : old.lastLogin || '',
+    x.profileComplete != null ? !!x.profileComplete : !!old.profileComplete,
+    x.blockedOn != null ? x.blockedOn : old.blockedOn || '',
+    x.blockedBy != null ? x.blockedBy : old.blockedBy || '',
+    x.notes != null ? x.notes : old.notes || ''
+  ];
+}
+
+function setMasterStatus_(id, status, blockedOn, actor) {
+  var a = accountById_(id);
+  if (!a) return;
+  var sh = sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]);
+  sh.getRange(a.row, 8).setValue(status);
+  sh.getRange(a.row, 20).setValue(status === 'Blocked' ? (blockedOn || new Date()) : '');
+  sh.getRange(a.row, 21).setValue(status === 'Blocked' ? actor : '');
+  if (status === 'Blocked') clearToken_(a.row);
+}
+
+function touchMaster_(id, unit, step) {
+  var a = accountById_(id); if (!a) return;
+  var sh = sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]);
+  sh.getRange(a.row, 11).setValue(new Date());
+  if (unit) sh.getRange(a.row, 12).setValue(unit);
+  if (step) sh.getRange(a.row, 13).setValue(step);
+}
+
+function syncManagedSectionsText_(facultyId) {
+  var a = accountById_(facultyId); if (!a) return;
+  sheetFor_(TAB_MASTER, HEAD[TAB_MASTER]).getRange(a.row, 7).setValue(getManagedSections_(facultyId).join(', '));
+}
+
+function ensureUniqueEmail_(email, exceptId) {
+  var target = norm_(email);
+  masterRows_().forEach(function (a) {
+    if (a.role === 'Student' && norm_(a.email) === target && norm_(a.id) !== norm_(exceptId)) {
+      throw new Error('This email address is already linked to another student account.');
+    }
+  });
+}
+
+/* ========================================================================== */
+/* TEST AND PROJECT RECORD HELPERS                                             */
+/* ========================================================================== */
+
+function activeTestAttempts_(studentId, unit) {
+  return rowsByHeaders_(TAB_TESTS, HEAD[TAB_TESTS]).filter(function (r) {
+    return norm_(r[1]) === norm_(studentId) && norm_(r[5]) === norm_(unit) && !r[13];
+  }).length;
+}
+
+function projectRecord_(studentId, unit) {
+  var rows = rowsByHeaders_(TAB_PROJECTS, HEAD[TAB_PROJECTS]);
+  for (var i = rows.length - 1; i >= 0; i--) {
+    if (norm_(rows[i][1]) === norm_(studentId) && norm_(rows[i][5]) === norm_(unit)) {
+      return projectFromValues_(rows[i], i + 2);
+    }
+  }
+  return null;
+}
+
+function projectAtRow_(row) {
+  var sh = sheetFor_(TAB_PROJECTS, HEAD[TAB_PROJECTS]);
+  return projectFromValues_(sh.getRange(row, 1, 1, HEAD[TAB_PROJECTS].length).getValues()[0], row);
+}
+
+function projectFromValues_(r, row) {
+  return {
+    row: row, submittedAt: r[0], studentId: r[1], studentName: r[2], email: r[3],
+    section: r[4], unit: String(r[5] || ''), projectName: r[6], submissionType: r[7],
+    url: r[8], driveFileId: r[9], fileName: r[10], suggestedScore: r[11],
+    aiSummary: r[12], strengths: r[13], issues: r[14], improvements: r[15],
+    aiStatus: r[16], approvedScore: r[17], facultyFeedback: r[18], approvedBy: r[19],
+    approvedAt: r[20], submissionStatus: r[21], resetAt: r[22], resetBy: r[23]
+  };
+}
+
+function projectPublicRecord_(p, facultyView) {
+  var approved = p.submissionStatus === 'Approved';
+  var base = {
+    studentId: p.studentId, studentName: p.studentName, section: p.section,
+    unit: p.unit, projectName: p.projectName, submittedAt: dateIso_(p.submittedAt),
+    submissionType: p.submissionType, url: p.url, fileName: p.fileName,
+    submissionStatus: p.submissionStatus, aiStatus: p.aiStatus
+  };
+  if (facultyView) {
+    base.suggestedScore = p.suggestedScore;
+    base.aiSummary = p.aiSummary;
+    base.strengths = p.strengths;
+    base.issues = p.issues;
+    base.improvements = p.improvements;
+    base.approvedScore = p.approvedScore;
+    base.facultyFeedback = p.facultyFeedback;
+  } else if (approved) {
+    base.approvedScore = p.approvedScore;
+    base.facultyFeedback = p.facultyFeedback;
+    base.aiSummary = p.aiSummary;
+    base.strengths = p.strengths;
+    base.issues = p.issues;
+    base.improvements = p.improvements;
+  }
+  return base;
+}
+
+/* ========================================================================== */
+/* SYSTEM DATA AND GENERIC HELPERS                                             */
+/* ========================================================================== */
+
+function setSystemValue_(type, key, value, owner, active, notes) {
+  var sh = sheetFor_(TAB_SYSTEM, HEAD[TAB_SYSTEM]);
+  var rows = sh.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(type) && String(rows[i][1]) === String(key) && norm_(rows[i][3]) === norm_(owner || '')) {
+      sh.getRange(i + 1, 3, 1, 5).setValues([[value, owner || '', active !== false, new Date(), notes || '']]);
+      return;
+    }
+  }
+  sh.appendRow([type, key, value, owner || '', active !== false, new Date(), notes || '']);
+}
+
+function systemValue_(type, key) {
+  var sh = sheetFor_(TAB_SYSTEM, HEAD[TAB_SYSTEM]);
+  if (sh.getLastRow() < 2) return '';
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, HEAD[TAB_SYSTEM].length).getValues();
+  for (var i = rows.length - 1; i >= 0; i--) {
+    if (rows[i][0] === type && rows[i][1] === key && rows[i][4] === true) return rows[i][2];
+  }
+  return '';
+}
+
+function rowsByHeaders_(name, headers) {
+  var sh = sheetFor_(name, headers);
+  if (sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getValues();
+}
+
+function findRow_(sh, col, value) {
+  if (sh.getLastRow() < 2) return 0;
+  var vals = sh.getRange(2, col, sh.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < vals.length; i++) if (norm_(vals[i][0]) === norm_(value)) return i + 2;
+  return 0;
+}
+
+function headerMap_(headers) {
+  var map = {};
+  headers.forEach(function (h, i) { map[String(h)] = i; });
+  return map;
+}
+function valueBy_(row, map, name) { return map[name] == null ? '' : row[map[name]]; }
+function norm_(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
+function cleanId_(v) { return String(v || '').trim(); }
+function cleanName_(v) { return String(v || '').trim().replace(/\s+/g, ' '); }
+function cleanEmail_(v) { return String(v || '').trim().toLowerCase(); }
+function cleanSection_(v) { return String(v || '').trim().replace(/\s+/g, ' '); }
+function titleCaseRole_(v) { return /^f/i.test(String(v || '')) ? 'Faculty' : 'Student'; }
+function validEmail_(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '')); }
+function safeFileName_(v) { return String(v || 'project.py').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 160); }
+function slug_(v) { return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80); }
+function unique_(arr) {
+  var seen = {}; return (arr || []).filter(function (x) {
+    var key = String(x); if (seen[key]) return false; seen[key] = true; return true;
+  });
+}
+function round1_(v) { return Math.round((Number(v) || 0) * 10) / 10; }
+function dateIso_(v) { return v instanceof Date ? v.toISOString() : (v || ''); }
+function normalPercent_(v) {
+  var n = Number(v); if (!isFinite(n)) return 0; return n > 1 ? n / 100 : n;
+}
+function parseJsonArray_(v) {
+  try { var a = JSON.parse(String(v || '[]')); return Array.isArray(a) ? a : []; }
+  catch (err) { return []; }
+}
+function parseScore_(v) {
+  if (v instanceof Date) return { score: v.getMonth() + 1, total: v.getDate() };
+  var m = String(v || '').match(/(\d+)\s*\/\s*(\d+)/);
+  return m ? { score: Number(m[1]), total: Number(m[2]) } : { score: 0, total: 0 };
+}
+function listText_(arr) { return (arr || []).map(function (x) { return '• ' + x; }).join('\n'); }
+function arrayStrings_(v) { return Array.isArray(v) ? v.map(String).filter(Boolean).slice(0, 10) : []; }
+function stripCodeFence_(v) { return String(v || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim(); }
+
+function addStatusRules_(range) {
   var sh = range.getSheet();
-  var rule = SpreadsheetApp.newConditionalFormatRule()
+  var rules = sh.getConditionalFormatRules().filter(function (r) {
+    return true;
+  });
+  function add(text, bg, fg) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(text)
+      .setBackground(bg).setFontColor(fg).setRanges([range]).build());
+  }
+  add('Active', '#E6F4E9', '#1E5B32');
+  add('Inactive', '#E7E7EA', '#4A5069');
+  add('Blocked', '#F9DCD7', '#8C2318');
+  add('Completed', '#CDEDE7', '#0F4F47');
+  add('Profile incomplete', '#FFF0CC', '#7A4A08');
+  sh.setConditionalFormatRules(rules);
+}
+
+function addProgressRules_(range) {
+  var sh = range.getSheet();
+  var rules = sh.getConditionalFormatRules();
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
     .setGradientMinpointWithValue(RED, SpreadsheetApp.InterpolationType.NUMBER, '0')
     .setGradientMidpointWithValue(AMBER, SpreadsheetApp.InterpolationType.NUMBER, '0.6')
     .setGradientMaxpointWithValue(GREEN, SpreadsheetApp.InterpolationType.NUMBER, '1')
-    .setRanges([range]).build();
-  var rules = sh.getConditionalFormatRules();
-  rules.push(rule);
-  sh.setConditionalFormatRules(rules);
-}
-
-/** More flags = redder. */
-function flagScale(range) {
-  var sh = range.getSheet();
-  var rule = SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberGreaterThanOrEqualTo(3)
-    .setBackground('#F6D3CE').setFontColor('#8C2318')
-    .setRanges([range]).build();
-  var rules = sh.getConditionalFormatRules();
-  rules.push(rule);
-  sh.setConditionalFormatRules(rules);
-}
-
-function statusColours(range) {
-  var sh = range.getSheet();
-  var rules = sh.getConditionalFormatRules();
-  var paint = function (text, bg, fg) {
-    rules.push(SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo(text).setBackground(bg).setFontColor(fg)
-      .setRanges([range]).build());
-  };
-  paint('Unit complete',   '#CDEDE7', '#0F4F47');
-  paint('On track',        '#E6F4E9', '#1E5B32');
-  paint('Not started',     '#FBEBD2', '#7A4A08');
-  paint('Struggling',      '#F9DCD7', '#8C2318');
-  paint('Inactive',        '#E7E7EA', '#4A5069');
-  paint('Check integrity', '#F6C9C2', '#7A1B12');
+    .setRanges([range]).build());
   sh.setConditionalFormatRules(rules);
 }
