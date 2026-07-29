@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/style.css?v=9">
+<link rel="stylesheet" href="assets/css/style.css?v=10">
 </head>
 <body>
 
@@ -53,19 +53,58 @@
 
     <p class="gate__lede">Read a concept. Check yourself. Write the code and watch it run — right here, nothing to install.</p>
 
-    <form class="reg" id="regForm" autocomplete="on">
+    <form class="reg authbox" id="regForm" autocomplete="on">
+      <div class="authmode" role="tablist" aria-label="Account access">
+        <button type="button" class="authmode__btn is-active" data-auth-mode="login">Sign in</button>
+        <button type="button" class="authmode__btn" data-auth-mode="register">First-time student</button>
+      </div>
+
       <div class="reg__row">
         <label class="field">
-          <span>Roll number</span>
-          <input id="regId" name="rollNumber" required placeholder="S2026_CS_01" maxlength="30">
+          <span>Account type</span>
+          <select id="regRole" name="role" required>
+            <option value="student">Student</option>
+            <option value="faculty">Faculty</option>
+          </select>
         </label>
         <label class="field">
-          <span>Full name</span>
-          <input id="regName" name="fullName" required placeholder="Your name as per college records" maxlength="60">
+          <span>ID</span>
+          <input id="regId" name="accountId" required placeholder="Enter your ID" maxlength="30" autocomplete="username">
         </label>
       </div>
-      <button class="btn btn--go" type="submit">Start Unit 1</button>
-      <p class="reg__note" id="regNote">Students: your roll number starts with <strong>S</strong>. Faculty: your ID starts with <strong>F</strong>.</p>
+
+      <div id="registerFields" hidden>
+        <div class="reg__row">
+          <label class="field">
+            <span>Full name</span>
+            <input id="regName" name="fullName" placeholder="Your name as per records" maxlength="60">
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input id="regEmail" name="email" type="email" placeholder="name@example.com" maxlength="120">
+          </label>
+        </div>
+        <label class="field">
+          <span>Section</span>
+          <select id="regSection" name="section">
+            <option value="">Loading sections…</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="reg__row">
+        <label class="field">
+          <span>Four-digit PIN</span>
+          <input id="regPin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password" required placeholder="••••">
+        </label>
+        <label class="field" id="confirmPinField" hidden>
+          <span>Confirm PIN</span>
+          <input id="regPin2" name="pinConfirm" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="••••">
+        </label>
+      </div>
+
+      <button class="btn btn--go" type="submit" id="authSubmit">Sign in</button>
+      <p class="reg__note" id="regNote">Choose your account type and enter your details.</p>
     </form>
 
     <footer class="credit">
@@ -92,11 +131,12 @@
       <span class="topbar__name">AbhyasLab<em>Concept To Code</em></span>
     </a>
     <div class="topbar__right">
-      <span id="whoTag" class="whotag" hidden>Faculty preview</span>
+      <span id="whoTag" class="whotag" hidden>Faculty</span>
       <div class="who">
         <strong id="whoName">—</strong>
         <span id="whoId">—</span>
       </div>
+      <button class="topbar__logout" id="logoutBtn" type="button">Sign out</button>
     </div>
   </header>
 
@@ -149,7 +189,7 @@
 <script src="assets/js/unit1.js?v=8"></script>
 <script src="assets/js/unit2.js?v=9"></script>
 <script src="assets/js/content.js?v=8"></script>
-<script src="assets/js/api.js?v=8"></script>
-<script src="assets/js/app.js?v=9"></script>
+<script src="assets/js/api.js?v=10"></script>
+<script src="assets/js/app.js?v=10"></script>
 </body>
 </html>
