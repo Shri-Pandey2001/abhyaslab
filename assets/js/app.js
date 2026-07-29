@@ -82,19 +82,35 @@ const keyProgress = (id) => "abhyaslab.progress." + id;
 
 let student  = null;
 let progress = {};
-let view     = { name: "dashboard", step: 0 };
+let serverState = { progress: {}, tests: {}, projects: {}, summary: null };
+let view     = { name: "dashboard", step: 0, facultyTab: "overview" };
+let authMode = "login";
 const chat   = [];
 
 function loadStudent() {
-  try { return JSON.parse(localStorage.getItem(KEY_STUDENT) || "null"); }
-  catch { return null; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY_STUDENT) || "null");
+    if (!saved || !saved.id || !saved.token) return null;
+    if (!saved.expiresAt || Date.parse(saved.expiresAt) <= Date.now()) {
+      localStorage.removeItem(KEY_STUDENT);
+      return null;
+    }
+    return saved;
+  } catch { return null; }
+}
+function saveStudent() {
+  try { localStorage.setItem(KEY_STUDENT, JSON.stringify(student)); } catch {}
+}
+function clearStudent() {
+  try { localStorage.removeItem(KEY_STUDENT); } catch {}
+  student = null;
 }
 function loadProgress() {
   try { return JSON.parse(localStorage.getItem(keyProgress(student.id)) || "{}"); }
   catch { return {}; }
 }
 function saveProgress() {
-  if (isFaculty()) return;                      // preview only — nothing is kept
+  if (isFaculty()) return;
   try { localStorage.setItem(keyProgress(student.id), JSON.stringify(progress)); } catch {}
 }
 function rec(id) {
@@ -103,33 +119,128 @@ function rec(id) {
   return progress[id];
 }
 
-/* ----------------------------------------------------------------------
-   WHO IS THIS?
-   Roll numbers beginning with S are students: locked in sequence, and
-   everything they do is written to the Sheet.
-   IDs beginning with F are faculty: every unit open from the start, and
-   nothing is recorded anywhere.
-   ---------------------------------------------------------------------- */
-const isFaculty = () => !!student && /^f/i.test(String(student.id).trim());
+const isFaculty = () => !!student && student.role === "faculty";
 
-/* Faculty calls quietly go nowhere. One wrapper, so no call site can forget. */
 const SYNC = (() => {
   const skip = () => Promise.resolve({ ok: false, faculty: true });
-  const w = {};
-  ["register", "logProgress", "logTest", "logProject", "heartbeat", "flag", "checkStudent"]
-    .forEach(fn => { w[fn] = (...args) => isFaculty() ? skip() : API[fn](...args); });
-  w.beacon = (...args) => isFaculty() ? false : API.beacon(...args);
-  w.isLive = () => API.isLive();
-  return w;
+  return {
+    isLive: () => API.isLive(),
+    progress: (row) => isFaculty() ? skip() : API.logProgress(student, row),
+    test: (row) => isFaculty() ? skip() : API.logTest(student, row),
+    project: (row) => isFaculty() ? skip() : API.submitProject(student, row),
+    heartbeat: (row) => isFaculty() ? skip() : API.heartbeat(student, row),
+    beacon: (row) => isFaculty() ? false : API.beacon(student, row),
+    flag: (row) => isFaculty() ? skip() : API.flag(student, row)
+  };
 })();
 
 function isUnlocked(i) {
-  if (isFaculty()) return true;                 // faculty see every unit at once
+  if (isFaculty()) return true;
   if (!CONFIG.lockingEnabled || i === 0) return true;
   const prev = progress[STEPS[i - 1].id];
   return !!(prev && prev.done);
 }
 const doneCount = () => STEPS.filter(s => progress[s.id] && progress[s.id].done).length;
+
+function stepTypeOf(s) {
+  if (!s) return "Topic";
+  if (s.kind !== "topic") return s.kind === "test" ? "Test" : "Project";
+  const id = String(s.id || "");
+  const title = String(s.title || "").toLowerCase();
+  if (/checkpoint/.test(id) || /checkpoint/.test(title)) return "Revision Checkpoint";
+  if (/mini[-_ ]?project/.test(id) || /guided mini/.test(title)) return "Guided Mini-Project";
+  return "Topic";
+}
+
+function progressSnapshot(s, r, event = "Progress updated") {
+  return {
+    unit: s.unit,
+    stepId: s.id,
+    stepType: stepTypeOf(s),
+    stepName: s.title,
+    mcqBest: Number(r.mcqScore || 0),
+    mcqTotal: Number(r.mcqTotal || 0),
+    tasksCompleted: Object.keys(r.tasks || {}).length,
+    tasksTotal: (s.data.tasks || []).length,
+    taskIds: Object.keys(r.tasks || {}),
+    status: r.done ? "Completed" : ((r.mcqTotal || Object.keys(r.tasks || {}).length) ? "In Progress" : "Not Started"),
+    lastEvent: event
+  };
+}
+
+function sendProgressSnapshot(s, r, event) {
+  if (isFaculty()) return Promise.resolve({ ok: false, faculty: true });
+  return SYNC.progress(progressSnapshot(s, r, event));
+}
+
+function courseSchemaPayload() {
+  return {
+    version: typeof COURSE_META !== "undefined" ? COURSE_META.version : "",
+    units: COURSE.map(unit => ({
+      unit: unit.unit,
+      title: unit.unitTitle,
+      steps: unit.topics.map(topic => ({
+        id: topic.id,
+        type: stepTypeOf({ kind: "topic", id: topic.id, title: topic.title }),
+        title: topic.title,
+        tasksTotal: (topic.tasks || []).length
+      })),
+      testId: unit.test ? "test:" + unit.unit : "",
+      projectId: unit.project ? "proj:" + unit.unit : ""
+    }))
+  };
+}
+
+function applyRemoteState(state) {
+  if (!state || isFaculty()) return;
+  serverState = state;
+
+  Object.keys(state.progress || {}).forEach(stepId => {
+    const p = state.progress[stepId];
+    const r = rec(stepId);
+    r.done = p.status === "Completed";
+    r.mcqScore = Number(p.mcqBest || 0);
+    r.mcqTotal = Number(p.mcqTotal || 0);
+    r.mcqPassed = r.mcqTotal ? Math.round(r.mcqScore / r.mcqTotal * 100) >= CONFIG.mcqPassPercent : false;
+    r.tasks = {};
+    (p.taskIds || []).forEach(id => { r.tasks[id] = true; });
+  });
+
+  Object.keys(state.tests || {}).forEach(unit => {
+    const t = state.tests[unit] || {};
+    const id = "test:" + unit;
+    if (t.resetAt && !(t.attempts || []).length) {
+      delete progress[id];
+      return;
+    }
+    if ((t.attempts || []).length || t.passed) {
+      const r = rec(id);
+      r.attempts = (t.attempts || []).length;
+      r.best = t.best;
+      r.total = t.total;
+      r.done = !!t.passed;
+    }
+  });
+
+  Object.keys(state.projects || {}).forEach(unit => {
+    const p = state.projects[unit] || {};
+    const id = "proj:" + unit;
+    if (p.submissionStatus === "Reset") {
+      delete progress[id];
+      return;
+    }
+    if (p.submissionStatus) {
+      const r = rec(id);
+      r.done = true;
+      r.link = p.url || "";
+      r.at = p.submittedAt || new Date().toISOString();
+      r.serverStatus = p.submissionStatus;
+      r.approvedScore = p.approvedScore;
+      r.facultyFeedback = p.facultyFeedback || "";
+    }
+  });
+  saveProgress();
+}
 
 /* ======================================================================
    SESSION CLOCK
@@ -164,7 +275,7 @@ function tickSession() {
 function beat() {
   if (!SESSION.id) return;
   SESSION.lastSent = Date.now();
-  SYNC.heartbeat(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
+  SYNC.heartbeat({ sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
 }
 
 /* one last ping as the tab closes */
@@ -172,7 +283,7 @@ window.addEventListener("pagehide", () => {
   if (!SESSION.id || isFaculty()) return;
   const now = Date.now();
   if (document.visibilityState === "visible") SESSION.active += now - SESSION.lastTick;
-  SYNC.beacon(student, { sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
+  SYNC.beacon({ sessionId: SESSION.id, minutes: SESSION.active / 60000, screen: currentScreen() });
 });
 
 /* ======================================================================
@@ -210,18 +321,16 @@ document.addEventListener("visibilitychange", () => {
 
   if (s.kind === "test" && exam.running) {
     finishExam("You left the tab");
-    SYNC.flag(student, { event: "Left the tab during a test", where: s.title,
+    SYNC.flag({ event: "Left the tab during a test", where: s.title,
                         detail: "Test submitted automatically" });
     guard.pending = "You left the tab, so the test was submitted.";
   } else if (s.kind === "topic") {
     delete progress[s.id];
+    const resetRec = rec(s.id);
     saveProgress();
-    SYNC.logProgress(student, {
-      unit: s.unit, topic: s.title, mcqScore: "",
-      codeStatus: "Left the tab", progression: "Topic progress reset"
-    });
-    SYNC.flag(student, { event: "Left the tab during a topic", where: s.title,
-                        detail: "Topic progress cleared" });
+    sendProgressSnapshot(s, resetRec, "Topic progress reset after leaving the tab");
+    SYNC.flag({ event: "Left the tab during a topic", where: s.title,
+                detail: "Topic progress cleared" });
     guard.pending = "You left the tab. This topic's progress was cleared.";
   }
 });
@@ -268,48 +377,134 @@ function typeShell() {
 }
 
 /* ======================================================================
-   REGISTRATION
+   SIGN-IN, FIRST-TIME REGISTRATION AND 24-HOUR SESSIONS
    ====================================================================== */
+let authCheckTimer = null;
+
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+  $$('[data-auth-mode]').forEach(btn => btn.classList.toggle("is-active", btn.dataset.authMode === authMode));
+  const registering = authMode === "register";
+  $("#registerFields").hidden = !registering;
+  $("#confirmPinField").hidden = !registering;
+  $("#regName").required = registering;
+  $("#regEmail").required = registering;
+  $("#regSection").required = registering;
+  $("#regPin2").required = registering;
+  $("#authSubmit").textContent = registering ? "Create student account" : "Sign in";
+  if (registering) {
+    $("#regRole").value = "student";
+    $("#regRole").disabled = true;
+    $("#regPin").autocomplete = "new-password";
+  } else {
+    $("#regRole").disabled = false;
+    $("#regPin").autocomplete = "current-password";
+  }
+  $("#regNote").textContent = registering
+    ? "First-time students must enter their name, email, section and a new four-digit PIN."
+    : "Your sign-in remains active for 24 hours.";
+  $("#regNote").classList.remove("is-bad");
+}
+
+$$('[data-auth-mode]').forEach(btn => btn.addEventListener("click", () => setAuthMode(btn.dataset.authMode)));
+
+async function loadSections() {
+  const select = $("#regSection");
+  if (!select) return;
+  select.innerHTML = '<option value="">Loading sections…</option>';
+  const res = await API.listSections();
+  if (!res || !res.ok) {
+    select.innerHTML = '<option value="">No sections available</option>';
+    return;
+  }
+  const sections = res.sections || [];
+  select.innerHTML = '<option value="">Choose your section</option>' + sections.map(s =>
+    `<option value="${esc(s.name)}">${esc(s.name)}</option>`
+  ).join("");
+}
+
+$("#regRole").addEventListener("change", () => {
+  if (authMode === "register" && $("#regRole").value !== "student") {
+    $("#regRole").value = "student";
+  }
+});
+
 $("#regForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const id   = $("#regId").value.trim();
-  const name = $("#regName").value.trim();
   const note = $("#regNote");
-  const btn  = $("#regForm button[type=submit]");
-
-  if (id.length < 3)   { note.textContent = "That roll number looks too short — use the one on your ID card."; note.classList.add("is-bad"); return; }
-  if (!/^[sf]/i.test(id)) {
-    note.textContent = "Roll numbers start with S. Faculty IDs start with F. Check yours and try again.";
-    note.classList.add("is-bad");
-    return;
-  }
-  if (name.length < 3) { note.textContent = "Enter your full name."; note.classList.add("is-bad"); return; }
+  const btn = $("#authSubmit");
+  const id = $("#regId").value.trim();
+  const pin = $("#regPin").value.trim();
+  const role = $("#regRole").value;
 
   note.classList.remove("is-bad");
-  note.innerHTML = '<span class="spin"></span> Setting up your workspace…';
-  btn.disabled = true;
-
-  const chk = await SYNC.checkStudent(id);
-  btn.disabled = false;
-  if (chk && chk.blocked) {
-    note.textContent = "This roll number has been removed by your faculty. Speak to them before continuing.";
+  if (!/^[A-Za-z][A-Za-z0-9_-]{2,29}$/.test(id)) {
+    note.textContent = "Enter a valid account ID without spaces.";
+    note.classList.add("is-bad");
+    return;
+  }
+  if (!/^\d{4}$/.test(pin)) {
+    note.textContent = "Enter your four-digit PIN.";
     note.classList.add("is-bad");
     return;
   }
 
-  student = { id, name, since: new Date().toISOString() };
-  localStorage.setItem(KEY_STUDENT, JSON.stringify(student));
-  progress = loadProgress();
+  btn.disabled = true;
+  note.innerHTML = '<span class="spin"></span> Checking your account…';
 
-  SYNC.register(student);          // logged in the background; never blocks the student
-  startApp();
+  let res;
+  if (authMode === "register") {
+    const name = $("#regName").value.trim();
+    const email = $("#regEmail").value.trim();
+    const section = $("#regSection").value;
+    const confirmPin = $("#regPin2").value.trim();
+    if (name.length < 3 || !email || !section || pin !== confirmPin) {
+      btn.disabled = false;
+      note.textContent = pin !== confirmPin
+        ? "The two PIN entries do not match."
+        : "Complete your name, email and section.";
+      note.classList.add("is-bad");
+      return;
+    }
+    res = await API.registerStudent({ id, name, email, section, pin });
+  } else {
+    res = await API.login(role, id, pin);
+  }
+  btn.disabled = false;
+
+  if (!res || !res.ok) {
+    note.textContent = (res && res.error) || "Sign-in failed. Try again.";
+    note.classList.add("is-bad");
+    if (res && res.needsProfile) setAuthMode("register");
+    return;
+  }
+  acceptAuthResponse(res);
 });
+
+function acceptAuthResponse(res) {
+  const a = res.account || {};
+  student = {
+    id: a.id,
+    name: a.name,
+    email: a.email || "",
+    section: a.section || "",
+    role: a.role,
+    status: a.status,
+    token: res.token,
+    expiresAt: res.expiresAt,
+    since: new Date().toISOString()
+  };
+  saveStudent();
+  progress = loadProgress();
+  applyRemoteState(res.state);
+  startApp();
+}
 
 function startApp() {
   $("#gate").hidden = true;
   $("#app").hidden  = false;
   $("#whoName").textContent = student.name;
-  $("#whoId").textContent   = student.id;
+  $("#whoId").textContent = student.section ? `${student.id} · ${student.section}` : student.id;
   const firstUnit = COURSE[0];
   const firstRailHeader = $(".rail__unit");
   if (firstUnit && firstRailHeader) {
@@ -320,25 +515,57 @@ function startApp() {
   $("#askBtn").hidden = !CONFIG.aiEnabled;
   const tag = $("#whoTag");
   if (tag) tag.hidden = !isFaculty();
-  go({ name: "dashboard" });
-  beginSession();
+
+  if (authCheckTimer) clearInterval(authCheckTimer);
+  authCheckTimer = setInterval(verifyStudent, 5 * 60 * 1000);
+
+  if (isFaculty()) {
+    API.syncCourse(student, courseSchemaPayload());
+    go({ name: "faculty", facultyTab: "overview" });
+  } else {
+    go({ name: "dashboard" });
+    beginSession();
+  }
 }
 
-/* A student deleted by faculty may still have data in their own browser.
-   Check on every load and clear them out if so. */
 async function verifyStudent() {
-  if (isFaculty()) return;
-  const chk = await SYNC.checkStudent(student.id);
-  if (!chk || !chk.blocked) return;
-  try {
-    localStorage.removeItem(KEY_STUDENT);
-    localStorage.removeItem(keyProgress(student.id));
-  } catch {}
-  if (SESSION.timer) clearInterval(SESSION.timer);
-  SESSION.id = null;
-  alert("This roll number has been removed by your faculty. Speak to them before continuing.");
-  location.reload();
+  if (!student || !student.token) return;
+  const res = await API.resume(student);
+  if (!res || !res.ok) {
+    await logoutNow((res && res.error) || "Your session ended. Sign in again.");
+    return;
+  }
+  student.name = res.account.name;
+  student.email = res.account.email || "";
+  student.section = res.account.section || "";
+  student.status = res.account.status;
+  student.expiresAt = res.expiresAt;
+  saveStudent();
+  applyRemoteState(res.state);
+  if (!isFaculty()) paintRail();
 }
+
+async function logoutNow(message = "") {
+  const old = student;
+  if (old && old.token) API.logout(old);
+  if (SESSION.timer) clearInterval(SESSION.timer);
+  if (authCheckTimer) clearInterval(authCheckTimer);
+  SESSION.id = null;
+  clearStudent();
+  $("#app").hidden = true;
+  $("#gate").hidden = false;
+  setAuthMode("login");
+  $("#regForm").reset();
+  await loadSections();
+  typeShell();
+  if (message) {
+    $("#regNote").textContent = message;
+    $("#regNote").classList.add("is-bad");
+  }
+  $("#regId").focus();
+}
+
+$("#logoutBtn").addEventListener("click", () => logoutNow("You have signed out."));
 
 /* ======================================================================
    RAIL
@@ -355,11 +582,11 @@ function paintRail() {
     return { done, total: items.length, percent: items.length ? done / items.length * 100 : 0 };
   };
 
-  $("#railList").innerHTML = STEPS.map((s, i) => {
+  const courseHtml = STEPS.map((s, i) => {
     const r = progress[s.id];
     const done = r && r.done;
     const open = isUnlocked(i);
-    const cur  = view.name !== "dashboard" && view.step === i;
+    const cur  = view.name === "step" && view.step === i;
     const next = STEPS[i + 1];
     const unitLast = !next || next.unit !== s.unit;
     const cls  = [
@@ -393,6 +620,26 @@ function paintRail() {
     </li>`;
   }).join("");
 
+  if (isFaculty()) {
+    $(".rail__eyebrow").textContent = "Faculty";
+    $("#railUnitTitle").textContent = "Section Dashboard";
+    $("#railMeterFill").style.width = "100%";
+    $("#railCount").textContent = "Authenticated faculty access";
+    const facultyNav = [
+      ["overview", "Dashboard"],
+      ["students", "Students"],
+      ["projects", "Project reviews"],
+      ["sections", "Sections"]
+    ].map(([tab, label]) => `<li class="tnode is-open ${view.name === "faculty" && view.facultyTab === tab ? "is-current" : ""}">
+      <span class="tnode__stamp" aria-hidden="true"><span>F</span></span>
+      <button class="tnode__btn" data-faculty-view="${tab}">
+        <span class="tnode__k">Faculty console</span><span class="tnode__t">${label}</span>
+      </button></li>`).join("");
+    $("#railList").innerHTML = facultyNav + `<li class="rail__unit-break"><p class="rail__eyebrow">Course</p><h3 class="rail__title">Preview all learning steps</h3></li>` + courseHtml;
+    return;
+  }
+
+  $("#railList").innerHTML = courseHtml;
   const first = COURSE[0];
   const firstStats = first ? statsFor(first.unit) : { done: 0, total: 0, percent: 0 };
   $("#railMeterFill").style.width = firstStats.percent + "%";
@@ -400,6 +647,8 @@ function paintRail() {
 }
 
 $("#railList").addEventListener("click", (e) => {
+  const f = e.target.closest("[data-faculty-view]");
+  if (f) { go({ name: "faculty", facultyTab: f.dataset.facultyView }); closeRail(); return; }
   const b = e.target.closest("[data-goto]");
   if (b) { go({ name: "step", step: +b.dataset.goto }); closeRail(); }
 });
@@ -408,7 +657,10 @@ const openRail  = () => { $("#rail").classList.add("is-open"); $("#railScrim").h
 const closeRail = () => { $("#rail").classList.remove("is-open"); $("#railScrim").hidden = true; $("#menuBtn").setAttribute("aria-expanded", "false"); };
 $("#menuBtn").addEventListener("click", () => $("#rail").classList.contains("is-open") ? closeRail() : openRail());
 $("#railScrim").addEventListener("click", closeRail);
-$("#homeLink").addEventListener("click", (e) => { e.preventDefault(); go({ name: "dashboard" }); });
+$("#homeLink").addEventListener("click", (e) => {
+  e.preventDefault();
+  go(isFaculty() ? { name: "faculty", facultyTab: "overview" } : { name: "dashboard" });
+});
 
 /* ======================================================================
    ROUTER
@@ -425,15 +677,227 @@ function go(next) {
 
 function render() {
   paintRail();
+  if (view.name === "faculty") {
+    armGuard(-1, false);
+    $("#askContext").textContent = "Faculty console";
+    paintFacultyConsole(view.facultyTab || "overview");
+    return;
+  }
   if (view.name === "dashboard") { armGuard(-1, false); paintDashboard(); $("#askContext").textContent = "Overview"; return; }
 
   const i = view.step, s = stepAt(i);
-  if (!s) return paintDashboard();
+  if (!s) return isFaculty() ? paintFacultyConsole("overview") : paintDashboard();
   $("#askContext").textContent = s.kind === "topic" ? "Topic " + s.no : KIND_LABEL[s.kind];
 
   if (s.kind === "topic")   { armGuard(i, true);  return paintTopic(i); }
   if (s.kind === "test")    { armGuard(i, exam.running); return paintTest(i); }
   if (s.kind === "project") { armGuard(i, false); return paintProject(i); }
+}
+
+/* ======================================================================
+   FACULTY WEBSITE DASHBOARD
+   ====================================================================== */
+let facultyCache = null;
+
+function facultyNavHtml(active) {
+  return `<div class="faculty-nav">
+    ${[
+      ["overview", "Dashboard"], ["students", "Students"],
+      ["projects", "Project reviews"], ["sections", "Sections"]
+    ].map(([tab, label]) => `<button type="button" data-faculty-tab="${tab}" class="${active === tab ? "is-active" : ""}">${label}</button>`).join("")}
+  </div>`;
+}
+
+async function paintFacultyConsole(tab = "overview") {
+  if (!isFaculty()) return go({ name: "dashboard" });
+  $("#main").innerHTML = `<div class="wrap">
+    <header class="thead"><p class="thead__k">Faculty console</p><h2 class="thead__t">Loading your sections…</h2></header>
+    <div class="faculty-card"><span class="spin"></span> Reading the latest Sheet data.</div>
+  </div>`;
+  const res = await API.facultyDashboard(student);
+  if (!res || !res.ok) {
+    $("#main").innerHTML = `<div class="wrap"><div class="result"><div><h4 class="result__t">Faculty dashboard unavailable</h4><p class="result__s">${esc((res && res.error) || "Try again.")}</p></div></div></div>`;
+    if (res && /session/i.test(res.error || "")) logoutNow(res.error);
+    return;
+  }
+  facultyCache = res;
+  renderFacultyTab(tab, res);
+}
+
+function renderFacultyTab(tab, data) {
+  view.facultyTab = tab;
+  let content = "";
+  if (tab === "students") content = facultyStudentsHtml(data);
+  else if (tab === "projects") content = facultyProjectsHtml(data);
+  else if (tab === "sections") content = facultySectionsHtml(data);
+  else content = facultyOverviewHtml(data);
+
+  $("#main").innerHTML = `<div class="wrap">
+    <header class="thead">
+      <p class="thead__k">Faculty console</p>
+      <h2 class="thead__t">${esc(student.name)}</h2>
+      <p class="thead__s">Showing students from: ${esc((data.sections || []).join(", ") || "No sections assigned yet")}</p>
+    </header>
+    ${facultyNavHtml(tab)}
+    ${content}
+    ${credit()}
+  </div>`;
+  bindFacultyEvents(tab, data);
+}
+
+function facultyOverviewHtml(data) {
+  const s = data.summary || {};
+  const cards = [
+    [s.total || 0, "Students"], [s.active || 0, "Active"],
+    [s.inactive || 0, "Inactive"], [s.completed || 0, "Completed"],
+    [s.projectsPending || 0, "Projects awaiting approval"],
+    [s.studentsNeedingAttention || 0, "Need attention"],
+    [s.doubts || 0, "Doubts asked"], [s.minutes || 0, "Learning minutes"]
+  ];
+  const recent = (data.students || []).slice().sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || ""))).slice(0, 10);
+  return `<div class="faculty-grid">${cards.map(([value, label]) => `<div class="faculty-card"><b>${esc(value)}</b><span>${esc(label)}</span></div>`).join("")}</div>
+    <div class="step"><span class="step__n">Live</span><h3 class="step__t">Recently active students</h3></div>
+    ${facultyStudentTable(recent, false)}`;
+}
+
+function facultyStudentsHtml(data) {
+  const sections = data.sections || [];
+  return `<div class="faculty-toolbar">
+    <input id="facultySearch" type="search" placeholder="Search ID, name or email">
+    <select id="facultySectionFilter"><option value="">All my sections</option>${sections.map(x => `<option>${esc(x)}</option>`).join("")}</select>
+    <select id="facultyStatusFilter"><option value="">All statuses</option><option>Active</option><option>Inactive</option><option>Blocked</option><option>Completed</option><option>Profile incomplete</option></select>
+    <button class="btn btn--quiet btn--sm" id="facultyRefresh">Refresh</button>
+  </div>
+  <div id="facultyStudentTable">${facultyStudentTable(data.students || [], true)}</div>`;
+}
+
+function facultyStudentTable(rows, actions) {
+  if (!rows.length) return `<div class="faculty-card"><span>No students are available in your assigned sections yet.</span></div>`;
+  return `<div class="faculty-table-wrap"><table class="faculty-table">
+    <thead><tr><th>Student</th><th>Section</th><th>Status</th><th>Progress</th><th>Current step</th><th>Last active</th><th>Tests / Projects</th>${actions ? "<th>Actions</th>" : ""}</tr></thead>
+    <tbody>${rows.map(s => `<tr data-student-row data-search="${esc((s.id + " " + s.name + " " + s.email + " " + s.section).toLowerCase())}" data-section="${esc(s.section)}" data-status="${esc(s.status)}">
+      <td><strong>${esc(s.name)}</strong><br><small>${esc(s.id)} · ${esc(s.email || "No email")}</small></td>
+      <td>${esc(s.section || "—")}</td>
+      <td><span class="status-chip" data-status="${esc(s.status)}">${esc(s.status)}</span></td>
+      <td><div class="faculty-progress"><div class="faculty-progress__bar"><i style="width:${Math.round((s.weightedProgress || 0) * 100)}%"></i></div><small>${Math.round((s.weightedProgress || 0) * 100)}% weighted · ${s.stepsDone}/${s.stepsTotal}</small></div></td>
+      <td>${esc(s.currentUnit || "—")}<br><small>${esc(s.currentStep || "Not started")}</small></td>
+      <td>${s.lastSeen ? esc(new Date(s.lastSeen).toLocaleString()) : "—"}</td>
+      <td><small>${esc(s.testSummary || "").replace(/\n/g, "<br>")}<br>${esc(s.projectSummary || "").replace(/\n/g, "<br>")}</small></td>
+      ${actions ? `<td><div class="actions">
+        <button class="is-primary" data-view-student="${esc(s.id)}">View</button>
+        ${s.status === "Blocked" ? `<button data-student-action="Unblock" data-id="${esc(s.id)}">Unblock</button>` : `<button data-student-action="Block" data-id="${esc(s.id)}">Block</button>`}
+        <button data-student-action="Reset Test" data-id="${esc(s.id)}">Reset test</button>
+        <button data-student-action="Reset Project" data-id="${esc(s.id)}">Reset project</button>
+        <button class="is-danger" data-student-action="Delete Permanently" data-id="${esc(s.id)}">Delete</button>
+      </div></td>` : ""}
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function facultyProjectsHtml(data) {
+  const rows = data.pendingProjects || [];
+  if (!rows.length) return `<div class="faculty-card"><b>0</b><span>No project submissions are waiting for approval.</span></div>`;
+  return `<div class="faculty-table-wrap"><table class="faculty-table">
+    <thead><tr><th>Student</th><th>Unit / Project</th><th>Submission</th><th>AI suggestion</th><th>Review</th></tr></thead>
+    <tbody>${rows.map(p => `<tr>
+      <td><strong>${esc(p.studentName)}</strong><br><small>${esc(p.studentId)} · ${esc(p.section)}</small></td>
+      <td>${esc(p.unit)}<br><small>${esc(p.projectName)}</small></td>
+      <td><a href="${esc(p.url)}" target="_blank" rel="noopener">Open ${esc(p.submissionType || "submission")}</a><br><small>${esc(p.fileName || "")}</small></td>
+      <td><strong>${p.suggestedScore === "" || p.suggestedScore == null ? "—" : esc(p.suggestedScore + "/100")}</strong><br><small>${esc(p.aiSummary || p.aiStatus || "")}</small></td>
+      <td><button class="btn btn--go btn--sm" data-approve-project data-id="${esc(p.studentId)}" data-unit="${esc(p.unit)}" data-score="${esc(p.suggestedScore === "" ? 0 : p.suggestedScore)}">Approve / edit score</button></td>
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function facultySectionsHtml(data) {
+  return `<div class="faculty-card">
+    <h3>Create or join a section</h3>
+    <p>Create a section once. It immediately appears in first-time student registration and in your faculty filters.</p>
+    <div class="faculty-toolbar"><input id="newSectionName" placeholder="Example: Section A"><button class="btn btn--go btn--sm" id="createSectionBtn">Create / assign</button></div>
+    <p><strong>Your sections:</strong> ${esc((data.sections || []).join(", ") || "None yet")}</p>
+  </div>`;
+}
+
+function bindFacultyEvents(tab, data) {
+  $$('[data-faculty-tab]', $("#main")).forEach(btn => btn.addEventListener("click", () => go({ name: "faculty", facultyTab: btn.dataset.facultyTab })));
+  const refresh = $("#facultyRefresh");
+  if (refresh) refresh.addEventListener("click", () => paintFacultyConsole(tab));
+
+  const filter = () => {
+    const q = String($("#facultySearch")?.value || "").trim().toLowerCase();
+    const section = $("#facultySectionFilter")?.value || "";
+    const status = $("#facultyStatusFilter")?.value || "";
+    $$('[data-student-row]').forEach(row => {
+      row.hidden = !!((q && !row.dataset.search.includes(q)) || (section && row.dataset.section !== section) || (status && row.dataset.status !== status));
+    });
+  };
+  [$("#facultySearch"), $("#facultySectionFilter"), $("#facultyStatusFilter")].filter(Boolean).forEach(el => el.addEventListener("input", filter));
+
+  $$('[data-view-student]', $("#main")).forEach(btn => btn.addEventListener("click", () => openFacultyStudent(btn.dataset.viewStudent)));
+  $$('[data-student-action]', $("#main")).forEach(btn => btn.addEventListener("click", () => runFacultyStudentAction(btn.dataset.studentAction, btn.dataset.id)));
+  $$('[data-approve-project]', $("#main")).forEach(btn => btn.addEventListener("click", () => approveFacultyProject(btn.dataset.id, btn.dataset.unit, btn.dataset.score)));
+
+  const create = $("#createSectionBtn");
+  if (create) create.addEventListener("click", async () => {
+    const name = $("#newSectionName").value.trim();
+    if (!name) return toast("Enter a section name.");
+    create.disabled = true;
+    const res = await API.createSection(student, name);
+    create.disabled = false;
+    if (!res || !res.ok) return toast((res && res.error) || "Section was not created.");
+    await loadSections();
+    toast("Section is ready.");
+    paintFacultyConsole("sections");
+  });
+}
+
+async function openFacultyStudent(studentId) {
+  $("#main").innerHTML = `<div class="wrap"><div class="faculty-card"><span class="spin"></span> Loading student details…</div></div>`;
+  const res = await API.facultyStudent(student, studentId);
+  if (!res || !res.ok) return toast((res && res.error) || "Student details could not be loaded.");
+  const s = res.student;
+  $("#main").innerHTML = `<div class="wrap">
+    <button class="btn btn--quiet btn--sm" id="backFacultyStudents">← Back to students</button>
+    <header class="thead"><p class="thead__k">${esc(s.section)}</p><h2 class="thead__t">${esc(s.name)}</h2><p class="thead__s">${esc(s.id)} · ${esc(s.email)}</p></header>
+    <div class="faculty-detail">
+      <section><h4>Progress</h4><dl><dt>Status</dt><dd>${esc(s.status)}</dd><dt>Weighted progress</dt><dd>${Math.round((s.weightedProgress || 0) * 100)}%</dd><dt>Steps</dt><dd>${s.stepsDone}/${s.stepsTotal}</dd><dt>Current</dt><dd>${esc(s.currentUnit || "—")} — ${esc(s.currentStep || "Not started")}</dd><dt>Unit summary</dt><dd>${esc(s.unitSummary || "")}</dd></dl></section>
+      <section><h4>Engagement</h4><dl><dt>Last active</dt><dd>${s.lastSeen ? esc(new Date(s.lastSeen).toLocaleString()) : "—"}</dd><dt>Minutes</dt><dd>${esc(s.minutes)}</dd><dt>Sessions</dt><dd>${esc(s.sessions)}</dd><dt>Doubts</dt><dd>${esc(s.doubts)}</dd><dt>Integrity flags</dt><dd>${esc(s.flags)}</dd></dl></section>
+      <section><h4>Tests</h4><dl>${Object.keys(s.tests || {}).map(unit => `<dt>${esc(unit)}</dt><dd>${esc((s.tests[unit].attempts || []).length ? `${s.tests[unit].best}/${s.tests[unit].total} · ${s.tests[unit].passed ? "Pass" : "Not cleared"}` : "Not attempted")}</dd>`).join("") || "<dd>No test attempts yet.</dd>"}</dl></section>
+      <section><h4>Projects</h4><dl>${Object.keys(s.projects || {}).map(unit => `<dt>${esc(unit)}</dt><dd>${esc(s.projects[unit].submissionStatus || "Not submitted")}${s.projects[unit].approvedScore !== undefined && s.projects[unit].approvedScore !== "" ? ` · ${esc(s.projects[unit].approvedScore)}/100` : ""}</dd>`).join("") || "<dd>No project submissions yet.</dd>"}</dl></section>
+    </div>${credit()}
+  </div>`;
+  $("#backFacultyStudents").addEventListener("click", () => go({ name: "faculty", facultyTab: "students" }));
+}
+
+async function runFacultyStudentAction(operation, studentId) {
+  let unit = "";
+  let confirmation = "";
+  if (operation === "Reset Test" || operation === "Reset Project") {
+    unit = prompt("Type the unit exactly, for example Unit 1:", "Unit 1") || "";
+    if (!unit) return;
+  }
+  if (operation === "Delete Permanently") {
+    confirmation = prompt(`Type ${studentId} to permanently delete this student:`, "") || "";
+    if (!confirmation) return;
+  } else if (!confirm(`${operation} ${studentId}?`)) return;
+
+  const res = await API.studentAction(student, studentId, operation, unit, confirmation);
+  if (!res || !res.ok) return toast((res && res.error) || "The action failed.");
+  toast(res.result || "Action completed.");
+  paintFacultyConsole("students");
+}
+
+async function approveFacultyProject(studentId, unit, suggested) {
+  const scoreText = prompt("Approved score out of 100:", String(suggested || 0));
+  if (scoreText == null) return;
+  const score = Number(scoreText);
+  if (!Number.isFinite(score) || score < 0 || score > 100) return toast("Use a score from 0 to 100.");
+  const feedback = prompt("Faculty feedback visible to the student:", "Reviewed and approved.");
+  if (feedback == null) return;
+  const res = await API.approveProject(student, studentId, unit, score, feedback);
+  if (!res || !res.ok) return toast((res && res.error) || "Approval failed.");
+  toast("Project score approved.");
+  paintFacultyConsole("projects");
 }
 
 /* ======================================================================
@@ -452,7 +916,7 @@ function paintDashboard() {
 
   $("#main").innerHTML = `<div class="wrap">
     <section class="hero">
-      <p class="hero__k">${esc(CONFIG.institution)} &middot; ${esc(CONFIG.courseName)}${isFaculty() ? " &middot; Faculty preview" : ""}</p>
+      <p class="hero__k">${CONFIG.institution ? esc(CONFIG.institution) + " &middot; " : ""}${esc(CONFIG.courseName)}${isFaculty() ? " &middot; Faculty preview" : ""}</p>
       <h2 class="hero__t">${n === 0 ? "Welcome, " + first + "." : "Keep going, " + first + "."}</h2>
       <p class="hero__s">${n === 0
         ? "Read, answer, then write Python that runs on this page. Finish the topics, clear the unit test, submit the project."
@@ -633,12 +1097,7 @@ function settleQuiz(s, r, answered) {
   if (pass) r.mcqPassed = true;
   saveProgress();
 
-  SYNC.logProgress(student, {
-    unit: s.unit, topic: t.title,
-    mcqScore: score + "/" + total,
-    codeStatus: "Quiz attempted",
-    progression: pass ? "Quiz cleared" : "Quiz not cleared"
-  });
+  sendProgressSnapshot(s, r, pass ? "Quiz cleared" : "Quiz not cleared");
 
   showQuizBar(s, score, total, pass, false);
   paintFinish(indexOf_(s.id));
@@ -715,6 +1174,7 @@ function paintTasks(s, r) {
   $$("[data-confirm]", host).forEach(cb => cb.addEventListener("change", () => {
     if (cb.checked) r.tasks[cb.dataset.confirm] = true; else delete r.tasks[cb.dataset.confirm];
     saveProgress();
+    sendProgressSnapshot(s, r, cb.checked ? "Practical activity completed" : "Practical activity unchecked");
     paintFinish(indexOf_(s.id));
     paintRail();
   }));
@@ -963,12 +1423,7 @@ async function runTask(s, r, task, sec, btn) {
     saveProgress();
     if (!wasPassed) {
       toast("Task passed — nice.");
-      SYNC.logProgress(student, {
-        unit: s.unit, topic: s.title,
-        mcqScore: r.mcqTotal ? r.mcqScore + "/" + r.mcqTotal : "",
-        codeStatus: "Passed: " + task.title,
-        progression: "Task cleared"
-      });
+      sendProgressSnapshot(s, r, "Passed task: " + task.title);
     }
   } else {
     status.textContent = res.error ? "Python reported an error" : "Not passing yet";
@@ -990,12 +1445,7 @@ function paintFinish(i) {
   if (complete && !r.done) {
     r.done = true;
     saveProgress();
-    SYNC.logProgress(student, {
-      unit: s.unit, topic: t.title,
-      mcqScore: r.mcqScore + "/" + r.mcqTotal,
-      codeStatus: "All tasks passed",
-      progression: i + 1 < STEPS.length ? STEPS[i + 1].title + " unlocked" : "Unit complete"
-    });
+    sendProgressSnapshot(s, r, i + 1 < STEPS.length ? STEPS[i + 1].title + " unlocked" : "Unit complete");
     toast("Topic complete.");
   }
 
@@ -1164,7 +1614,7 @@ function tickClock() {
   el.classList.toggle("is-low", left < 120000);
   if (left <= 0) {
     finishExam("Time ran out");
-    SYNC.flag(student, { event: "Test ran out of time", where: currentScreen(), detail: "Auto-submitted" });
+    SYNC.flag({ event: "Test ran out of time", where: currentScreen(), detail: "Auto-submitted" });
     render();
   }
 }
@@ -1194,11 +1644,11 @@ function finishExam(reason) {
   exam.result = { score, total, pct, pass, correct, reason, answers: Object.assign({}, exam.answers) };
   armGuard(i, false);
 
-  SYNC.logTest(student, {
+  SYNC.test({
     unit: s.unit, testName: t.title,
     score, total, percent: pct,
     result: pass ? "Pass" : "Fail",
-    attempt: r.attempts, reason
+    reason
   });
 }
 
@@ -1253,11 +1703,23 @@ function paintTestResult(i) {
 }
 
 /* ======================================================================
-   UNIT PROJECT
+   UNIT PROJECT — ONE SUBMISSION, LINK OR DIRECT PYTHON FILE
    ====================================================================== */
 function paintProject(i) {
   const s = stepAt(i), p = s.data, r = rec(s.id);
   const nextStep = STEPS[i + 1];
+  const remote = (serverState.projects || {})[s.unit] || null;
+  const submitted = remote && remote.submissionStatus && remote.submissionStatus !== "Reset";
+
+  const reviewHtml = remote ? `<div class="project-review">
+    <h5>Review status: ${esc(remote.submissionStatus || remote.aiStatus || "Submitted")}</h5>
+    ${remote.approvedScore !== undefined && remote.approvedScore !== "" ? `<p><strong>Approved score:</strong> ${esc(remote.approvedScore)}/100</p>` : `<p>Your AI suggestion is visible to faculty. Your official score appears here only after faculty approval.</p>`}
+    ${remote.facultyFeedback ? `<p><strong>Faculty feedback:</strong> ${esc(remote.facultyFeedback)}</p>` : ""}
+    ${remote.aiSummary ? `<p><strong>Review summary:</strong> ${esc(remote.aiSummary)}</p>` : ""}
+    ${remote.strengths ? `<p><strong>Strengths</strong></p><div>${esc(String(remote.strengths)).replace(/\n/g, "<br>")}</div>` : ""}
+    ${remote.issues ? `<p><strong>Problems found</strong></p><div>${esc(String(remote.issues)).replace(/\n/g, "<br>")}</div>` : ""}
+    ${remote.improvements ? `<p><strong>Improvements</strong></p><div>${esc(String(remote.improvements)).replace(/\n/g, "<br>")}</div>` : ""}
+  </div>` : "";
 
   $("#main").innerHTML = `<div class="wrap">
     <header class="thead">
@@ -1268,65 +1730,105 @@ function paintProject(i) {
 
     <article class="brief">${p.brief}</article>
 
-    ${r.done && r.link ? `
-      <div class="submitted">
-        <h4 class="finish__t">Submitted</h4>
-        <p class="finish__s">Sent on ${new Date(r.at).toLocaleString()}.</p>
-        <p><a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.link)}</a></p>
-        <div class="submit__row" style="margin-top:1rem">
-          <button class="btn btn--quiet btn--sm" id="resubmit">Replace the link</button>
-          ${nextStep ? `<button class="btn btn--go btn--sm" data-next="${i + 1}">Continue to ${esc(nextStep.unit)}</button>`
-                     : '<button class="btn btn--go btn--sm" data-home>Back to your progress</button>'}
-        </div>
-      </div>`
-    : `
-      <div class="submit">
-        <h4>Submit your project</h4>
-        <p>Paste a public GitHub repository link, or a Google Drive link shared with
-        "Anyone with the link". Submitting completes ${esc(s.unit)}.</p>
-        <div class="submit__row">
-          <input id="projLink" type="url" placeholder="https://github.com/your-name/student-id-card" spellcheck="false">
-          <button class="btn btn--go" id="projSend">Submit</button>
-        </div>
-        <p class="submit__note" id="projNote">Open the link in a private window first. If it doesn't load there, it won't load for your teacher either.</p>
-      </div>`}
+    ${submitted ? `<div class="submitted">
+      <h4 class="finish__t">Project submitted</h4>
+      <p class="finish__s">Only one official submission is allowed. Faculty can reset it when another submission is required.</p>
+      ${remote.url ? `<p><a href="${esc(remote.url)}" target="_blank" rel="noopener">Open submitted ${esc(remote.submissionType || "project")}</a></p>` : ""}
+      ${remote.fileName ? `<p><strong>File:</strong> ${esc(remote.fileName)}</p>` : ""}
+      ${reviewHtml}
+      <div class="submit__row" style="margin-top:1rem">
+        ${nextStep ? `<button class="btn btn--go btn--sm" data-next="${i + 1}">Continue to ${esc(nextStep.unit)}</button>`
+                   : '<button class="btn btn--go btn--sm" data-home>Back to your progress</button>'}
+      </div>
+    </div>` : `<div class="submit">
+      <h4>Submit your project once</h4>
+      <p>Choose either a public GitHub/Google Drive link or upload one <code>.py</code> or <code>.ipynb</code> file. Direct files receive an automatic static AI review. The AI does not execute the program.</p>
+      <div class="submit__choice">
+        <section class="submit__pane">
+          <h5>Option 1 — Public link</h5>
+          <input id="projLink" type="url" placeholder="https://github.com/your-name/project" spellcheck="false">
+          <button class="btn btn--go btn--sm" id="projLinkSend">Submit link</button>
+        </section>
+        <section class="submit__pane">
+          <h5>Option 2 — Direct file</h5>
+          <input id="projFile" type="file" accept=".py,.ipynb">
+          <button class="btn btn--go btn--sm" id="projFileSend">Upload file</button>
+          <p class="submit__note">Maximum size: 5 MB.</p>
+        </section>
+      </div>
+      <p class="submit__note" id="projNote">Check everything carefully. Another submission is blocked unless faculty resets this unit project.</p>
+    </div>`}
     ${credit()}
   </div>`;
 
-  const send = $("#projSend");
-  if (send) send.addEventListener("click", () => submitProject(i));
-  const inp = $("#projLink");
-  if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") submitProject(i); });
-
-  const re = $("#resubmit");
-  if (re) re.addEventListener("click", () => { r.done = false; saveProgress(); render(); });
-
+  const linkBtn = $("#projLinkSend");
+  if (linkBtn) linkBtn.addEventListener("click", () => submitProjectLink(i));
+  const fileBtn = $("#projFileSend");
+  if (fileBtn) fileBtn.addEventListener("click", () => submitProjectFile(i));
   const nb = $("[data-next]"); if (nb) nb.addEventListener("click", () => go({ name: "step", step: +nb.dataset.next }));
   const hb = $("[data-home]"); if (hb) hb.addEventListener("click", () => go({ name: "dashboard" }));
 }
 
-function submitProject(i) {
+async function submitProjectLink(i) {
+  const s = stepAt(i);
+  const raw = $("#projLink").value.trim();
+  const note = $("#projNote");
+  let url;
+  try { url = new URL(raw); }
+  catch { note.textContent = "Enter a complete https:// link."; note.classList.add("is-bad"); return; }
+  if (url.protocol !== "https:" || !CONFIG.projectHosts.some(h => url.hostname === h || url.hostname.endsWith("." + h))) {
+    note.textContent = "Only secure GitHub or Google Drive links are accepted.";
+    note.classList.add("is-bad");
+    return;
+  }
+  if (!confirm(`Submit this link for ${s.unit}?\n\n${raw}\n\nYou cannot replace it unless faculty resets the project.`)) return;
+  await sendProjectSubmission(i, { submissionType: "Link", link: raw });
+}
+
+async function submitProjectFile(i) {
+  const s = stepAt(i);
+  const file = $("#projFile").files[0];
+  const note = $("#projNote");
+  if (!file) { note.textContent = "Choose a .py or .ipynb file."; note.classList.add("is-bad"); return; }
+  if (!/\.(py|ipynb)$/i.test(file.name)) { note.textContent = "Only .py and .ipynb files are accepted."; note.classList.add("is-bad"); return; }
+  if (file.size > 5 * 1024 * 1024) { note.textContent = "The selected file is larger than 5 MB."; note.classList.add("is-bad"); return; }
+  if (!confirm(`Upload ${file.name} for ${s.unit}?\n\nYou cannot replace it unless faculty resets the project.`)) return;
+  note.innerHTML = '<span class="spin"></span> Reading and uploading your project…';
+  const fileBase64 = await fileAsBase64(file);
+  await sendProjectSubmission(i, { submissionType: "File", fileName: file.name, fileBase64 });
+}
+
+function fileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",").pop());
+    reader.onerror = () => reject(new Error("The file could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function sendProjectSubmission(i, payload) {
   const s = stepAt(i), r = rec(s.id);
   const note = $("#projNote");
-  const raw  = $("#projLink").value.trim();
-
-  const bad = (m) => { note.textContent = m; note.classList.add("is-bad"); };
-
-  let url;
-  try { url = new URL(raw); } catch { return bad("That isn't a complete link. It should begin with https://"); }
-  if (url.protocol !== "https:") return bad("Use an https:// link.");
-  if (!CONFIG.projectHosts.some(h => url.hostname.endsWith(h)))
-    return bad("Only GitHub or Google Drive links are accepted.");
-
-  if (!confirm("Submit this link?\n\n" + raw + "\n\nThis completes " + s.unit + ".")) return;
-
-  r.link = raw;
-  r.at   = new Date().toISOString();
+  const buttons = [$("#projLinkSend"), $("#projFileSend")].filter(Boolean);
+  buttons.forEach(b => { b.disabled = true; });
+  note.innerHTML = '<span class="spin"></span> Saving the official submission and preparing the review…';
+  const res = await SYNC.project(Object.assign({ unit: s.unit, projectName: s.title }, payload));
+  buttons.forEach(b => { b.disabled = false; });
+  if (!res || !res.ok) {
+    note.textContent = (res && res.error) || "The project could not be submitted.";
+    note.classList.add("is-bad");
+    return;
+  }
+  serverState.projects = serverState.projects || {};
+  serverState.projects[s.unit] = res.submission;
+  r.link = res.submission.url || "";
+  r.at = res.submission.submittedAt || new Date().toISOString();
   r.done = true;
+  r.serverStatus = res.submission.submissionStatus;
   saveProgress();
-
-  SYNC.logProject(student, { unit: s.unit, projectName: s.title, link: raw });
-  toast(s.unit + " complete.");
+  toast(s.unit + " project submitted.");
+  paintRail();
   render();
 }
 
@@ -1436,8 +1938,8 @@ function flagPaste() {
   const now = Date.now();
   if (now - lastPasteFlag < 60000) return;
   lastPasteFlag = now;
-  SYNC.flag(student, { event: "Paste blocked in the code editor", where: currentScreen(),
-                      detail: "Student tried to paste code" });
+  SYNC.flag({ event: "Paste blocked in the code editor", where: currentScreen(),
+              detail: "Student tried to paste code" });
 }
 
 /* ======================================================================
@@ -1530,15 +2032,30 @@ $("#askForm").addEventListener("submit", async (e) => {
 /* ======================================================================
    BOOT
    ====================================================================== */
-student = loadStudent();
-if (student && student.id) {
-  progress = loadProgress();
-  startApp();
-  verifyStudent();
-} else {
+(async function boot() {
+  setAuthMode("login");
+  await loadSections();
+  student = loadStudent();
+  if (student && student.id) {
+    progress = loadProgress();
+    const res = await API.resume(student);
+    if (res && res.ok) {
+      student.name = res.account.name;
+      student.email = res.account.email || "";
+      student.section = res.account.section || "";
+      student.role = res.account.role;
+      student.status = res.account.status;
+      student.expiresAt = res.expiresAt;
+      saveStudent();
+      applyRemoteState(res.state);
+      startApp();
+      return;
+    }
+    clearStudent();
+  }
   $("#gate").hidden = false;
   typeShell();
   $("#regId").focus();
-}
+})();
 
 })();
