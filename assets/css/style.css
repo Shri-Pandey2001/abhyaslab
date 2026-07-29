@@ -1022,3 +1022,174 @@ button,input,textarea{font:inherit;color:inherit}
 @media (max-width:900px){
   .whotag{font-size:.6rem;padding:.24rem .45rem;letter-spacing:.08em}
 }
+
+/* ========================================================================== */
+/* SECURE SIGN-IN AND FACULTY CONSOLE                                         */
+/* ========================================================================== */
+
+.authbox { max-width: 760px; }
+.authmode {
+  display: inline-flex;
+  gap: .25rem;
+  padding: .25rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 12px;
+  background: rgba(11,22,54,.35);
+}
+.authmode__btn {
+  border: 0;
+  border-radius: 9px;
+  padding: .65rem 1rem;
+  color: rgba(255,255,255,.68);
+  background: transparent;
+  font: 700 .82rem/1 "Bricolage Grotesque", sans-serif;
+  cursor: pointer;
+}
+.authmode__btn.is-active { color: #101a37; background: #f2a03d; }
+.field select {
+  width: 100%;
+  min-height: 46px;
+  padding: .75rem .85rem;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 10px;
+  color: #f5f2e8;
+  background: #111d43;
+  font: inherit;
+}
+.field select option { color: #111d43; background: #fff; }
+.topbar__logout {
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 8px;
+  padding: .45rem .7rem;
+  color: #f4f1e8;
+  background: transparent;
+  font: 700 .72rem/1 "Bricolage Grotesque", sans-serif;
+  cursor: pointer;
+}
+.topbar__logout:hover { background: rgba(255,255,255,.08); }
+
+.faculty-nav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .55rem;
+  margin: 1rem 0 1.35rem;
+}
+.faculty-nav button {
+  border: 1px solid #ccd3e3;
+  border-radius: 10px;
+  padding: .75rem .6rem;
+  background: #fff;
+  color: #192747;
+  font: 700 .78rem/1.2 "Bricolage Grotesque", sans-serif;
+  cursor: pointer;
+}
+.faculty-nav button.is-active,
+.faculty-nav button:hover { border-color: #f2a03d; background: #fff6e8; }
+.faculty-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .8rem;
+  margin: 1rem 0 1.5rem;
+}
+.faculty-card {
+  padding: 1rem;
+  border: 1px solid #d8ddea;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 7px 20px rgba(28,42,76,.06);
+}
+.faculty-card b { display: block; color: #172447; font-size: 1.55rem; }
+.faculty-card span { display: block; margin-top: .25rem; color: #68718a; font-size: .78rem; }
+.faculty-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .65rem;
+  margin: 1rem 0;
+}
+.faculty-toolbar input,
+.faculty-toolbar select,
+.faculty-toolbar textarea {
+  min-height: 40px;
+  border: 1px solid #cbd2e2;
+  border-radius: 8px;
+  padding: .55rem .7rem;
+  background: #fff;
+  color: #172447;
+  font: inherit;
+}
+.faculty-table-wrap { overflow: auto; border: 1px solid #d8ddea; border-radius: 12px; background: #fff; }
+.faculty-table { width: 100%; min-width: 950px; border-collapse: collapse; font-size: .78rem; }
+.faculty-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: .72rem .65rem;
+  text-align: left;
+  color: #f5f1e8;
+  background: #172447;
+}
+.faculty-table td { padding: .68rem .65rem; border-top: 1px solid #e3e6ef; vertical-align: top; }
+.faculty-table tr:hover td { background: #faf8f1; }
+.faculty-table .actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+.faculty-table .actions button {
+  border: 1px solid #c8cfde;
+  border-radius: 7px;
+  padding: .35rem .5rem;
+  background: #fff;
+  color: #263657;
+  font: 700 .68rem/1 "Bricolage Grotesque", sans-serif;
+  cursor: pointer;
+}
+.faculty-table .actions button.is-danger { border-color: #e5b8b1; color: #8c2318; }
+.faculty-table .actions button.is-primary { border-color: #e0a148; background: #fff3dc; }
+.status-chip {
+  display: inline-block;
+  padding: .25rem .5rem;
+  border-radius: 999px;
+  background: #edf0f6;
+  color: #46506a;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.status-chip[data-status="Active"] { background: #e6f4e9; color: #1e5b32; }
+.status-chip[data-status="Inactive"] { background: #ececf0; color: #4a5069; }
+.status-chip[data-status="Blocked"] { background: #f9dcd7; color: #8c2318; }
+.status-chip[data-status="Completed"] { background: #cdede7; color: #0f4f47; }
+.faculty-progress { width: 120px; }
+.faculty-progress__bar { height: 7px; overflow: hidden; border-radius: 999px; background: #e5e8ef; }
+.faculty-progress__bar i { display: block; height: 100%; background: #28a08f; }
+.faculty-progress small { color: #68718a; }
+.faculty-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.faculty-detail section { padding: 1rem; border: 1px solid #d8ddea; border-radius: 12px; background: #fff; }
+.faculty-detail h4 { margin: 0 0 .75rem; color: #172447; }
+.faculty-detail dl { display: grid; grid-template-columns: minmax(120px, .7fr) 1.3fr; gap: .45rem .8rem; margin: 0; }
+.faculty-detail dt { color: #68718a; }
+.faculty-detail dd { margin: 0; color: #172447; font-weight: 600; white-space: pre-wrap; }
+
+.submit__choice { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: 1rem 0; }
+.submit__pane { padding: 1rem; border: 1px solid #d8ddea; border-radius: 12px; background: #fff; }
+.submit__pane h5 { margin: 0 0 .45rem; color: #172447; }
+.submit__pane input[type="file"] { width: 100%; margin: .6rem 0; }
+.project-review {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #d8ddea;
+  border-radius: 12px;
+  background: #f8f9fc;
+}
+.project-review h5 { margin: 0 0 .5rem; color: #172447; }
+.project-review p { margin: .35rem 0; }
+.project-review ul { margin: .4rem 0 .8rem 1.1rem; }
+
+@media (max-width: 900px) {
+  .faculty-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .faculty-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .faculty-detail { grid-template-columns: 1fr; }
+  .submit__choice { grid-template-columns: 1fr; }
+}
