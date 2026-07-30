@@ -9,5 +9,11 @@ window.ABHYASLAB_CONFIG = Object.freeze({
 
     admin:
       "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-admin",
-  }),
+    
+    core:
+      "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-core",
+
+    ai:
+      "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-ai"
+  })
 });
