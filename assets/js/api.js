@@ -1,180 +1,398 @@
 /* ==========================================================================
-   AbhyasLab — secure Google Apps Script API client
+   AbhyasLab — Supabase Edge Functions API client
+   Keeps the response format expected by the existing application.
    ========================================================================== */
 
 const API = (() => {
-  const live = () => typeof CONFIG.endpoint === "string" && CONFIG.endpoint.includes("script.google.com");
+  "use strict";
 
-  async function post(payload) {
-    if (!live()) return { ok: false, offline: true, error: "The backend is not connected." };
+  const settings = () => window.ABHYASLAB_CONFIG || {};
+  const functions = () => settings().functions || {};
+
+  function isConfigured() {
+    const cfg = settings();
+
+    return Boolean(
+      cfg &&
+      typeof cfg.publishableKey === "string" &&
+      cfg.publishableKey.startsWith("sb_") &&
+      typeof functions().auth === "string" &&
+      functions().auth.includes("/functions/v1/")
+    );
+  }
+
+  function tokenFrom(account) {
+    return account && typeof account.token === "string"
+      ? account.token.trim()
+      : "";
+  }
+
+  function messageOf(value, fallback) {
+    return typeof value === "string" && value.trim()
+      ? value.trim()
+      : fallback;
+  }
+
+  function normaliseUser(user = {}) {
+    return {
+      id: user.accountId || user.account_id || "",
+      name: user.fullName || user.full_name || "AbhyasLab User",
+      email: user.email || "",
+      section:
+        user.sectionCode ||
+        user.section_code ||
+        user.sectionName ||
+        user.section_name ||
+        "",
+      role: user.role || "student",
+      status: user.status || "active",
+      userId: user.userId || user.user_id || ""
+    };
+  }
+
+  function normaliseState(state) {
+    const safe = state && typeof state === "object" ? state : {};
+
+    return {
+      progress:
+        safe.progress && typeof safe.progress === "object"
+          ? safe.progress
+          : {},
+      tests:
+        safe.tests && typeof safe.tests === "object"
+          ? safe.tests
+          : {},
+      projects:
+        safe.projects && typeof safe.projects === "object"
+          ? safe.projects
+          : {},
+      summary: safe.summary || null
+    };
+  }
+
+  async function request(url, payload, token = "", options = {}) {
+    if (!isConfigured()) {
+      return {
+        success: false,
+        message: "Supabase frontend configuration is missing."
+      };
+    }
+
+    if (!url) {
+      return {
+        success: false,
+        message: "This AbhyasLab service has not been deployed yet."
+      };
+    }
+
+    const headers = {
+      "Content-Type": "application/json",
+      "apikey": settings().publishableKey
+    };
+
+    if (token) {
+      headers["x-abhyaslab-session"] = token;
+    }
+
     try {
-      const response = await fetch(CONFIG.endpoint, {
+      const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload)
+        headers,
+        body: JSON.stringify(payload),
+        keepalive: options.keepalive === true
       });
-      const text = await response.text();
-      try { return JSON.parse(text); }
-      catch { return { ok: false, error: "The server returned an unreadable response." }; }
-    } catch {
-      return { ok: false, error: "Could not reach the server. Check your internet connection." };
+
+      const raw = await response.text();
+      let data = {};
+
+      if (raw) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          return {
+            success: false,
+            message: "The server returned an unreadable response."
+          };
+        }
+      }
+
+      if (!response.ok || data.success === false) {
+        return {
+          ...data,
+          success: false,
+          message: messageOf(
+            data.message,
+            `Request failed with status ${response.status}.`
+          )
+        };
+      }
+
+      return {
+        ...data,
+        success: true
+      };
+    } catch (error) {
+      console.error("AbhyasLab request failed:", error);
+
+      return {
+        success: false,
+        message:
+          "Could not reach AbhyasLab. Check your internet connection and try again."
+      };
     }
   }
 
-  const auth = (account) => ({ authToken: account && account.token ? account.token : "" });
+  function legacyResult(result, fallback) {
+    return result.success
+      ? {
+          ...result,
+          ok: true
+        }
+      : {
+          ...result,
+          ok: false,
+          error: messageOf(result.message, fallback)
+        };
+  }
+
+  async function core(action, account, values = {}, options = {}) {
+    const result = await request(
+      functions().core,
+      {
+        action,
+        ...values
+      },
+      tokenFrom(account),
+      options
+    );
+
+    return legacyResult(result, "The requested course operation failed.");
+  }
 
   return {
-    isLive: live,
+    isLive: isConfigured,
 
-    listSections() {
-      return post({ action: "sections" });
-    },
-
-    registerStudent(data) {
-      return post({
-        action: "studentRegister",
-        studentId: data.id,
-        studentName: data.name,
-        email: data.email,
-        section: data.section,
-        pin: data.pin,
-        course: CONFIG.courseName
+    async login(_selectedRole, accountId, pin) {
+      const result = await request(functions().auth, {
+        action: "login",
+        accountId: String(accountId || "").trim(),
+        pin: String(pin || "").trim()
       });
+
+      if (!result.success) {
+        return {
+          ok: false,
+          error: messageOf(result.message, "Sign-in failed.")
+        };
+      }
+
+      const session = result.session || {};
+
+      return {
+        ok: true,
+        token: session.token || "",
+        expiresAt: session.expiresAt || session.expires_at || "",
+        account: normaliseUser(result.user),
+        state: normaliseState(result.state)
+      };
     },
 
-    login(role, id, pin) {
-      return post({ action: "login", role, accountId: id, pin });
+    async resume(account) {
+      const token = tokenFrom(account);
+
+      if (!token) {
+        return {
+          ok: false,
+          error: "Your saved session is missing. Sign in again."
+        };
+      }
+
+      const result = await request(
+        functions().auth,
+        {
+          action: "validate-session"
+        },
+        token
+      );
+
+      if (!result.success) {
+        return {
+          ok: false,
+          error: messageOf(result.message, "Your session has ended.")
+        };
+      }
+
+      const session = result.session || {};
+      const current = normaliseUser(result.user);
+
+      return {
+        ok: true,
+        expiresAt:
+          session.expiresAt ||
+          session.expires_at ||
+          account.expiresAt ||
+          "",
+        account: {
+          ...current,
+          section: current.section || account.section || ""
+        },
+        state: normaliseState(result.state)
+      };
     },
 
-    resume(account) {
-      return post(Object.assign({ action: "resume" }, auth(account)));
+    async logout(account) {
+      const token = tokenFrom(account);
+
+      if (!token) {
+        return {
+          ok: true
+        };
+      }
+
+      const result = await request(
+        functions().auth,
+        {
+          action: "logout"
+        },
+        token
+      );
+
+      return legacyResult(result, "Sign-out could not be completed.");
     },
 
-    logout(account) {
-      return post(Object.assign({ action: "logout" }, auth(account)));
+    async listSections() {
+      const result = await request(functions().core, {
+        action: "list-sections"
+      });
+
+      return legacyResult(result, "Sections are currently unavailable.");
+    },
+
+    registerStudent() {
+      return Promise.resolve({
+        ok: false,
+        error:
+          "Student accounts are created by the administrator. Contact your faculty."
+      });
     },
 
     syncCourse(account, schema) {
-      return post(Object.assign({ action: "syncCourse", schema }, auth(account)));
+      return core("sync-course", account, {
+        schema
+      });
     },
 
     logProgress(account, row) {
-      return post(Object.assign({
-        action: "progress",
-        unit: row.unit,
-        stepId: row.stepId,
-        stepType: row.stepType,
-        stepName: row.stepName,
-        mcqBest: row.mcqBest,
-        mcqTotal: row.mcqTotal,
-        tasksCompleted: row.tasksCompleted,
-        tasksTotal: row.tasksTotal,
-        taskIds: row.taskIds,
-        status: row.status,
-        lastEvent: row.lastEvent || ""
-      }, auth(account)));
+      return core("save-progress", account, {
+        progress: row
+      });
     },
 
     logTest(account, row) {
-      return post(Object.assign({
-        action: "test",
-        unit: row.unit,
-        testName: row.testName,
-        score: row.score,
-        total: row.total,
-        percent: row.percent,
-        result: row.result,
-        reason: row.reason || "Submitted"
-      }, auth(account)));
+      return core("save-test-result", account, {
+        test: row
+      });
     },
 
     submitProject(account, row) {
-      return post(Object.assign({
-        action: "project",
-        unit: row.unit,
-        projectName: row.projectName,
-        submissionType: row.submissionType,
-        link: row.link || "",
-        fileName: row.fileName || "",
-        fileBase64: row.fileBase64 || ""
-      }, auth(account)));
+      return core("submit-project", account, {
+        project: row
+      });
     },
 
     heartbeat(account, row) {
-      return post(Object.assign({
-        action: "heartbeat",
-        sessionId: row.sessionId,
-        minutes: Math.round(row.minutes * 10) / 10,
-        screen: row.screen || ""
-      }, auth(account)));
+      return core("heartbeat", account, {
+        heartbeat: row
+      });
     },
 
     beacon(account, row) {
-      if (!live() || !navigator.sendBeacon || !account || !account.token) return false;
-      const body = JSON.stringify({
-        action: "heartbeat",
-        authToken: account.token,
-        sessionId: row.sessionId,
-        minutes: Math.round(row.minutes * 10) / 10,
-        screen: row.screen || ""
-      });
-      try {
-        return navigator.sendBeacon(
-          CONFIG.endpoint,
-          new Blob([body], { type: "text/plain;charset=utf-8" })
-        );
-      } catch { return false; }
+      const token = tokenFrom(account);
+
+      if (!token || !functions().core) {
+        return false;
+      }
+
+      request(
+        functions().core,
+        {
+          action: "heartbeat",
+          heartbeat: row
+        },
+        token,
+        {
+          keepalive: true
+        }
+      );
+
+      return true;
     },
 
     flag(account, row) {
-      if (!CONFIG.integrityLogging) return Promise.resolve({ ok: false });
-      return post(Object.assign({
-        action: "flag",
-        event: row.event,
-        where: row.where || "",
-        detail: row.detail || ""
-      }, auth(account)));
+      if (!CONFIG.integrityLogging) {
+        return Promise.resolve({
+          ok: false
+        });
+      }
+
+      return core("integrity-event", account, {
+        event: row
+      });
     },
 
-    ask(account, question, context, history) {
-      return post(Object.assign({
-        action: "ask",
-        question,
-        context,
-        history: history.slice(-6)
-      }, auth(account)));
+    async ask(account, question, context, history) {
+      const result = await request(
+        functions().ai,
+        {
+          action: "ask-doubt",
+          question,
+          context,
+          history: Array.isArray(history) ? history.slice(-6) : []
+        },
+        tokenFrom(account)
+      );
+
+      return legacyResult(result, "The AI doubt service is unavailable.");
     },
 
     facultyDashboard(account) {
-      return post(Object.assign({ action: "facultyDashboard" }, auth(account)));
+      return core("faculty-dashboard", account);
     },
 
     facultyStudent(account, studentId) {
-      return post(Object.assign({ action: "facultyStudent", studentId }, auth(account)));
+      return core("faculty-student", account, {
+        studentId
+      });
     },
 
     createSection(account, sectionName) {
-      return post(Object.assign({ action: "createSection", sectionName }, auth(account)));
+      return core("create-section", account, {
+        sectionName
+      });
     },
 
-    studentAction(account, studentId, operation, unit = "", confirmation = "") {
-      return post(Object.assign({
-        action: "studentAction",
+    studentAction(
+      account,
+      studentId,
+      operation,
+      unit = "",
+      confirmation = ""
+    ) {
+      return core("student-action", account, {
         studentId,
         operation,
         unit,
         confirmation
-      }, auth(account)));
+      });
     },
 
     approveProject(account, studentId, unit, score, feedback) {
-      return post(Object.assign({
-        action: "approveProject",
+      return core("approve-project", account, {
         studentId,
         unit,
         score,
         feedback
-      }, auth(account)));
+      });
     }
   };
 })();
