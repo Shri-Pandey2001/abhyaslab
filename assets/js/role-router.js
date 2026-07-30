@@ -1,6 +1,7 @@
 /* ==========================================================================
-   AbhyasLab — role router
-   Sends administrator, faculty and TA accounts to their own dashboards.
+   AbhyasLab — role router v2
+   Preserves the preferred landing design while routing each role correctly.
+   Load this file after api.js and before app.js.
    ========================================================================== */
 
 (() => {
@@ -8,14 +9,40 @@
 
   const STORAGE_KEY = "abhyaslab.student";
 
-  function dashboardFor(role) {
-    if (role === "admin") return "admin.html";
-    if (role === "faculty" || role === "ta") return "faculty.html";
+  function destinationFor(role) {
+    const value = String(role || "").trim().toLowerCase();
+
+    if (value === "admin") return "admin.html";
+    if (value === "faculty" || value === "ta") return "faculty.html";
+
     return "";
   }
 
-  function saveAccount(result) {
+  function readSavedAccount() {
+    try {
+      const account = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+
+      if (!account || !account.token || !account.role) return null;
+
+      if (
+        account.expiresAt &&
+        Number.isFinite(Date.parse(account.expiresAt)) &&
+        Date.parse(account.expiresAt) <= Date.now()
+      ) {
+        localStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
+
+      return account;
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+  }
+
+  function saveLoginResult(result) {
     const account = result.account || {};
+
     const saved = {
       id: account.id || "",
       name: account.name || "AbhyasLab User",
@@ -32,45 +59,40 @@
     return saved;
   }
 
-  function redirectSavedRole() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if (!saved || !saved.token || !saved.role) return false;
-      if (saved.expiresAt && Date.parse(saved.expiresAt) <= Date.now()) {
-        localStorage.removeItem(STORAGE_KEY);
-        return false;
-      }
+  const existing = readSavedAccount();
+  const existingDestination = existing
+    ? destinationFor(existing.role)
+    : "";
 
-      const destination = dashboardFor(saved.role);
-      if (!destination) return false;
-
-      window.location.replace(destination);
-      return true;
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-      return false;
-    }
+  if (existingDestination) {
+    window.location.replace(existingDestination);
+    return;
   }
 
-  if (redirectSavedRole()) return;
-  if (!window.API || typeof window.API.login !== "function") return;
+  if (typeof API === "undefined" || typeof API.login !== "function") {
+    console.error("AbhyasLab role router could not find the API client.");
+    return;
+  }
 
-  const originalLogin = window.API.login.bind(window.API);
+  const originalLogin = API.login.bind(API);
 
-  window.API.login = async (...args) => {
+  API.login = async (...args) => {
     const result = await originalLogin(...args);
 
     if (!result || !result.ok || !result.account) {
       return result;
     }
 
-    const destination = dashboardFor(result.account.role);
-    if (!destination) return result;
+    const destination = destinationFor(result.account.role);
 
-    saveAccount(result);
+    if (!destination) {
+      return result;
+    }
+
+    saveLoginResult(result);
     window.location.replace(destination);
 
-    // Keep the existing student application from rendering while navigation occurs.
+    // Prevent app.js from rendering the student dashboard while navigation occurs.
     return new Promise(() => {});
   };
 })();
