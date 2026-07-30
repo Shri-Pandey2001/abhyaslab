@@ -112,6 +112,8 @@ function loadProgress() {
 function saveProgress() {
   if (isFaculty()) return;
   try { localStorage.setItem(keyProgress(student.id), JSON.stringify(progress)); } catch {}
+  touchLearningDay();
+  updateTopbarGame();
 }
 function rec(id) {
   if (!progress[id]) progress[id] = { done: false, tasks: {}, mcqScore: 0, mcqTotal: 0, mcqPassed: false };
@@ -141,6 +143,135 @@ function isUnlocked(i) {
   return !!(prev && prev.done);
 }
 const doneCount = () => STEPS.filter(s => progress[s.id] && progress[s.id].done).length;
+
+/* ------------------------------------------------------- frontend gamification
+   XP, tiers, daily snacks and streaks are intentionally derived or stored in
+   this browser. No API, database table or backend contract is changed. */
+const DAILY_SNACKS = [
+  {
+    title: "Negative indexing",
+    prompt: "What will this program print?",
+    code: "numbers = [2, 4, 6]\\nprint(numbers[-1])",
+    options: ["2", "4", "6", "IndexError"],
+    answer: 2,
+    why: "Index -1 points to the last item, so Python prints 6."
+  },
+  {
+    title: "String repetition",
+    prompt: "Predict the exact output.",
+    code: "word = 'Py'\\nprint(word * 3)",
+    options: ["Py3", "Py Py Py", "PyPyPy", "Error"],
+    answer: 2,
+    why: "Multiplying a string repeats it without adding spaces."
+  },
+  {
+    title: "Loop total",
+    prompt: "What is printed at the end?",
+    code: "total = 0\\nfor n in [1, 2, 3]:\\n    total += n\\nprint(total)",
+    options: ["3", "5", "6", "123"],
+    answer: 2,
+    why: "The loop adds 1 + 2 + 3, giving a final total of 6."
+  },
+  {
+    title: "Boolean check",
+    prompt: "Which value is printed?",
+    code: "score = 72\\nprint(score >= 70)",
+    options: ["72", "True", "False", "70"],
+    answer: 1,
+    why: "72 is greater than or equal to 70, so the comparison is True."
+  },
+  {
+    title: "List length",
+    prompt: "What does len() return?",
+    code: "skills = ['Python', 'SQL', 'Git']\\nprint(len(skills))",
+    options: ["2", "3", "9", "skills"],
+    answer: 1,
+    why: "The list contains three items, therefore len(skills) is 3."
+  },
+  {
+    title: "Dictionary lookup",
+    prompt: "Predict the output.",
+    code: "student = {'name': 'Asha', 'level': 2}\\nprint(student['level'])",
+    options: ["Asha", "level", "2", "KeyError"],
+    answer: 2,
+    why: "The key 'level' stores the integer 2."
+  }
+];
+
+function dateStamp(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function activityKey() { return `abhyaslab.activity.${student ? student.id : "guest"}`; }
+function snackKey() { return `abhyaslab.snack.${student ? student.id : "guest"}.${dateStamp()}`; }
+
+function touchLearningDay() {
+  if (!student || isFaculty()) return { streak: 0, last: "" };
+  const today = dateStamp();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const previousDay = dateStamp(yesterday);
+  let data = { streak: 0, last: "" };
+  try { data = Object.assign(data, JSON.parse(localStorage.getItem(activityKey()) || "{}")); } catch {}
+  if (data.last !== today) {
+    data.streak = data.last === previousDay ? Math.max(1, Number(data.streak || 0) + 1) : 1;
+    data.last = today;
+    try { localStorage.setItem(activityKey(), JSON.stringify(data)); } catch {}
+  }
+  return data;
+}
+
+function activityState() {
+  if (!student || isFaculty()) return { streak: 0, last: "" };
+  try { return Object.assign({ streak: 1, last: dateStamp() }, JSON.parse(localStorage.getItem(activityKey()) || "{}")); }
+  catch { return { streak: 1, last: dateStamp() }; }
+}
+
+function todaySnack() {
+  const day = Math.floor(new Date(dateStamp() + "T00:00:00").getTime() / 86400000);
+  return DAILY_SNACKS[Math.abs(day) % DAILY_SNACKS.length];
+}
+
+function tierForXP(xp) {
+  if (xp >= 5000) return { name: "Automation Master", next: 5000, icon: "⚡" };
+  if (xp >= 3000) return { name: "Python Architect", next: 5000, icon: "🏛️" };
+  if (xp >= 1500) return { name: "Code Adventurer", next: 3000, icon: "🧭" };
+  if (xp >= 500) return { name: "Python Voyager", next: 1500, icon: "🚀" };
+  return { name: "Python Explorer", next: 500, icon: "🧪" };
+}
+
+function gamificationSnapshot() {
+  let xp = 0;
+  let tasks = 0;
+  STEPS.forEach(s => {
+    const r = progress[s.id];
+    if (!r) return;
+    if (s.kind === "topic") {
+      const passedTasks = Object.keys(r.tasks || {}).length;
+      tasks += passedTasks;
+      xp += passedTasks * 45;
+      if (r.mcqPassed) xp += 35;
+      if (r.done) xp += 80;
+    } else if (s.kind === "test" && r.done) xp += 300;
+    else if (s.kind === "project" && r.done) xp += 500;
+  });
+  try { if (localStorage.getItem(snackKey()) === "done") xp += 25; } catch {}
+  const streak = Number(activityState().streak || 1);
+  const tier = tierForXP(xp);
+  return { xp, tasks, streak, tier };
+}
+
+function updateTopbarGame() {
+  if (!student) return;
+  const game = gamificationSnapshot();
+  const streak = $("#streakCount"); if (streak) streak.textContent = game.streak;
+  const xp = $("#xpCount"); if (xp) xp.textContent = game.xp.toLocaleString();
+  const tier = $("#tierName"); if (tier) tier.textContent = game.tier.name;
+  const group = $("#topbarGame"); if (group) group.hidden = isFaculty();
+}
 
 function stepTypeOf(s) {
   if (!s) return "Topic";
@@ -339,13 +470,11 @@ document.addEventListener("visibilitychange", () => {
    WELCOME SCREEN
    ====================================================================== */
 const SCRIPT_LINES = [
-  { t: '>>> ', cls: 'prompt', instant: true },
-  { t: 'print("Concept To Code")' },
-  { t: '\n' },
-  { t: 'Concept To Code', cls: 'out', instant: true },
-  { t: '\n>>> ', cls: 'prompt', instant: true },
-  { t: 'run_python(in_browser=True)' },
-  { t: '\nNothing to install. Start typing.', cls: 'out', instant: true }
+  { t: '# Your future starts here', cls: 'prompt', instant: true },
+  { t: '\nstudent = Student(name="You", goal="Master Python")' },
+  { t: '\nstudent.join_abhyas_lab()' },
+  { t: '\nstudent.build_future()' },
+  { t: '\n\n🚀 Status: Leveling Up...', cls: 'out', instant: true }
 ];
 
 function typeShell() {
@@ -515,6 +644,8 @@ function startApp() {
   $("#askBtn").hidden = !CONFIG.aiEnabled;
   const tag = $("#whoTag");
   if (tag) tag.hidden = !isFaculty();
+  touchLearningDay();
+  updateTopbarGame();
 
   if (authCheckTimer) clearInterval(authCheckTimer);
   authCheckTimer = setInterval(verifyStudent, 5 * 60 * 1000);
@@ -677,6 +808,7 @@ function go(next) {
 
 function render() {
   paintRail();
+  updateTopbarGame();
   if (view.name === "faculty") {
     armGuard(-1, false);
     $("#askContext").textContent = "Faculty console";
@@ -906,61 +1038,163 @@ async function approveFacultyProject(studentId, unit, suggested) {
 function paintDashboard() {
   const n = doneCount();
   const nextIdx = STEPS.findIndex((s, i) => isUnlocked(i) && !(progress[s.id] && progress[s.id].done));
-  const target  = nextIdx === -1 ? STEPS.length - 1 : nextIdx;
-  const first   = esc(student.name.split(" ")[0]);
+  const target = nextIdx === -1 ? Math.max(0, STEPS.length - 1) : nextIdx;
+  const current = STEPS[target];
+  const first = esc(student.name.split(" ")[0]);
+  const percent = STEPS.length ? Math.round(n / STEPS.length * 100) : 0;
+  const game = gamificationSnapshot();
+  const snack = todaySnack();
+  let snackDone = false;
+  try { snackDone = localStorage.getItem(snackKey()) === "done"; } catch {}
 
   const tasksPassed = STEPS.reduce((a, s) =>
     a + (s.kind === "topic" && progress[s.id] ? Object.keys(progress[s.id].tasks || {}).length : 0), 0);
-  const testStep = STEPS.find(s => s.kind === "test");
-  const testRec  = testStep ? progress[testStep.id] : null;
+  const testsPassed = STEPS.filter(s => s.kind === "test" && progress[s.id] && progress[s.id].done).length;
+  const projectsDone = STEPS.filter(s => s.kind === "project" && progress[s.id] && progress[s.id].done).length;
 
-  $("#main").innerHTML = `<div class="wrap">
-    <section class="hero">
-      <p class="hero__k">${CONFIG.institution ? esc(CONFIG.institution) + " &middot; " : ""}${esc(CONFIG.courseName)}${isFaculty() ? " &middot; Faculty preview" : ""}</p>
-      <h2 class="hero__t">${n === 0 ? "Welcome, " + first + "." : "Keep going, " + first + "."}</h2>
-      <p class="hero__s">${n === 0
-        ? "Read, answer, then write Python that runs on this page. Finish the topics, clear the unit test, submit the project."
-        : (n === STEPS.length
-            ? "Everything live right now is complete. More units are on the way."
-            : "You've cleared " + n + " of " + STEPS.length + " steps. Next up: " + esc(STEPS[target].title) + ".")}</p>
-      ${n < STEPS.length ? `<button class="btn btn--go" data-goto="${target}">${n === 0 ? "Start Topic 1" : "Continue"}</button>` : ""}
-      <svg class="snake" viewBox="0 0 1200 90" aria-hidden="true">
-        <g class="snake__g">
-          <path class="snake__body" fill="none" stroke-linecap="round"
-                d="M170 45 C140 22 116 68 86 45 S32 22 0 45">
-            <animate attributeName="d" dur="1.5s" repeatCount="indefinite"
-                     values="M170 45 C140 22 116 68 86 45 S32 22 0 45;
-                             M170 45 C140 68 116 22 86 45 S32 68 0 45;
-                             M170 45 C140 22 116 68 86 45 S32 22 0 45"/>
-          </path>
-          <path class="snake__tongue" d="M186 45 h13 m0 0 l6 -4 m-6 4 l6 4" fill="none" stroke-linecap="round"/>
-          <ellipse class="snake__head" cx="174" cy="45" rx="13" ry="10"/>
-          <circle class="snake__eye" cx="178" cy="41.5" r="2.1"/>
-        </g>
-      </svg>
+  const stageNames = ["The Origin", "The Muscle", "The Architecture", "The Playground"];
+  const stageIcons = ["01", "02", "03", "04"];
+  const questMap = COURSE.map((unit, ui) => {
+    const indices = STEPS.map((step, i) => step.unit === unit.unit ? i : -1).filter(i => i >= 0);
+    const completed = indices.filter(i => progress[STEPS[i].id] && progress[STEPS[i].id].done).length;
+    const unitPercent = indices.length ? Math.round(completed / indices.length * 100) : 0;
+    const openIndex = indices.find(i => isUnlocked(i) && !(progress[STEPS[i].id] && progress[STEPS[i].id].done));
+    const goIndex = openIndex == null ? indices[0] : openIndex;
+    const unlocked = indices.some(i => isUnlocked(i));
+    const done = indices.length > 0 && completed === indices.length;
+    return `<button class="quest ${done ? "is-complete" : (unlocked ? "is-open" : "is-locked")}" ${unlocked ? `data-goto="${goIndex}"` : "disabled"}>
+      <span class="quest__badge">${done ? "✓" : stageIcons[ui] || String(ui + 1).padStart(2, "0")}</span>
+      <span class="quest__body">
+        <span class="quest__level">Level ${ui + 1} · ${esc(stageNames[ui] || "Skill Mission")}</span>
+        <strong>${esc(unit.unitTitle)}</strong>
+        <span>${completed} of ${indices.length} missions complete</span>
+        <span class="quest__bar"><i style="width:${unitPercent}%"></i></span>
+      </span>
+      <span class="quest__percent">${unlocked ? unitPercent + "%" : "🔒"}</span>
+    </button>`;
+  }).join("");
+
+  $("#main").innerHTML = `<div class="wrap wrap--wide">
+    <section class="mission-hero">
+      <div class="mission-hero__content">
+        <div class="hero__k">${CONFIG.institution ? esc(CONFIG.institution) + " &middot; " : ""}${esc(CONFIG.courseName)}${isFaculty() ? " &middot; Faculty preview" : ""}</div>
+        <div class="mission-hero__eyebrow"><span></span>${n === STEPS.length ? "All current missions cleared" : "Your next Python mission is ready"}</div>
+        <h2>${n === 0 ? "Your Python journey starts now, " + first + "." : "Keep building momentum, " + first + "."}</h2>
+        <p>${n === STEPS.length
+          ? "You have completed every mission currently available. Revisit a topic, sharpen your code, or prepare for the next unit."
+          : `You have cleared <strong>${n} of ${STEPS.length}</strong> learning missions. Your next challenge is <strong>${esc(current ? current.title : "Python practice")}</strong>.`}</p>
+        <div class="mission-hero__actions">
+          ${n < STEPS.length ? `<button class="btn btn--go btn--mission" data-goto="${target}">⚡ ${n === 0 ? "Start Day 1 Mission" : "Continue Current Mission"}</button>` : ""}
+          <button class="btn btn--ghost" type="button" data-scroll-quests>🎯 Explore Skill Map</button>
+        </div>
+        <div class="mission-hero__chips">
+          <span>🔥 ${game.streak}-day streak</span><span>⭐ ${game.xp.toLocaleString()} XP</span><span>${game.tier.icon} ${esc(game.tier.name)}</span>
+        </div>
+      </div>
+      <div class="mission-orbit" aria-label="${percent}% of course complete" style="--p:${percent}">
+        <div class="mission-orbit__inner"><strong>${percent}%</strong><span>course<br>complete</span></div>
+        <i class="orbit-dot orbit-dot--one"></i><i class="orbit-dot orbit-dot--two"></i>
+      </div>
+      <div class="hero-grid" aria-hidden="true"></div>
     </section>
 
     ${isFaculty() ? `<div class="guard guard--info">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v2h-2zm0 4h2v6h-2z"/></svg>
-      <span><b>Faculty preview.</b> Every topic, test and project is open. Nothing you do here
-      is saved to the Sheet or kept in this browser — refresh and it all resets.</span>
+      <span><b>Faculty preview.</b> Every topic, test and project is open. Preview actions are not saved.</span>
     </div>` : ""}
 
-    <div class="stats">
-      <div class="stat"><b>${n}/${STEPS.length}</b><span>Steps complete</span></div>
-      <div class="stat"><b>${tasksPassed}</b><span>Code tasks passed</span></div>
-      <div class="stat"><b>${testRec && testRec.best != null ? testRec.best + "/" + testRec.total : "—"}</b><span>Unit test</span></div>
-      <div class="stat stat--id"><b>${esc(student.id)}</b><span>Your roll number</span></div>
-    </div>
+    <section class="dashboard-grid dashboard-grid--top">
+      <article class="daily-snack ${snackDone ? "is-complete" : ""}" id="dailySnack">
+        <div class="daily-snack__head">
+          <div><span class="panel-kicker">Daily Code Snack · +25 XP</span><h3>One minute. One Python win.</h3></div>
+          <span class="daily-snack__status">${snackDone ? "✓ Completed today" : "Fresh today"}</span>
+        </div>
+        <p class="daily-snack__prompt"><strong>${esc(snack.title)}:</strong> ${esc(snack.prompt)}</p>
+        <pre><code>${esc(snack.code.replace(/\\n/g, "\n"))}</code></pre>
+        <div class="snack-options">
+          ${snack.options.map((option, i) => `<button type="button" data-snack-option="${i}" ${snackDone ? "disabled" : ""}>${String.fromCharCode(65 + i)}. ${esc(option)}</button>`).join("")}
+        </div>
+        <p class="snack-feedback" id="snackFeedback">${snackDone ? esc(snack.why) : "Choose an answer to protect your daily momentum."}</p>
+      </article>
 
-    <div class="step"><span class="step__n">All</span><h3 class="step__t">Your progress</h3></div>
-    <div class="prog">${STEPS.map((s, i) => progressRow(s, i)).join("")}</div>
+      <article class="command-card">
+        <span class="panel-kicker">Mission control</span>
+        <h3>${current ? esc(current.title) : "Course complete"}</h3>
+        <p>${current ? esc(current.summary || "Continue your next learning step.") : "Review a completed lesson or practise a coding task."}</p>
+        <div class="command-card__stats">
+          <div><strong>${tasksPassed}</strong><span>Code tasks</span></div>
+          <div><strong>${testsPassed}</strong><span>Tests passed</span></div>
+          <div><strong>${projectsDone}</strong><span>Projects</span></div>
+        </div>
+        ${current && n < STEPS.length ? `<button class="btn btn--quiet" data-goto="${target}">Open mission →</button>` : ""}
+      </article>
+    </section>
+
+    <section class="dashboard-section" id="skillQuests">
+      <div class="section-heading">
+        <div><span class="panel-kicker">Visual skill tree</span><h3>Level up through the Python universe</h3></div>
+        <span class="section-heading__note">Each level unlocks after the previous mission</span>
+      </div>
+      <div class="quest-map">${questMap}</div>
+    </section>
+
+    <section class="stats stats--premium" aria-label="Learning statistics">
+      <div class="stat"><span class="stat__icon">◫</span><div><b>${n}/${STEPS.length}</b><span>Steps complete</span></div></div>
+      <div class="stat"><span class="stat__icon">⌘</span><div><b>${tasksPassed}</b><span>Code tasks passed</span></div></div>
+      <div class="stat"><span class="stat__icon">★</span><div><b>${game.xp.toLocaleString()}</b><span>Experience points</span></div></div>
+      <div class="stat"><span class="stat__icon">↗</span><div><b>${esc(game.tier.name)}</b><span>Current tier</span></div></div>
+    </section>
+
+    <section class="dashboard-section">
+      <div class="section-heading">
+        <div><span class="panel-kicker">Career compass</span><h3>Why Python right now?</h3></div>
+        <span class="section-heading__note">One language. Multiple career directions.</span>
+      </div>
+      <div class="career-grid">
+        <article class="career-card"><span>🤖</span><h4>AI & Machine Learning</h4><p>Build intelligent apps, recommenders, assistants and computer-vision tools.</p><em>Python + NumPy + PyTorch</em></article>
+        <article class="career-card"><span>🌐</span><h4>Backend Development</h4><p>Create APIs and production web services using FastAPI, Flask or Django.</p><em>Python + APIs + Databases</em></article>
+        <article class="career-card"><span>📊</span><h4>Data Science</h4><p>Explore data, discover patterns and communicate decisions through evidence.</p><em>Pandas + SQL + Visualisation</em></article>
+        <article class="career-card"><span>⚡</span><h4>Automation</h4><p>Automate files, reports, spreadsheets, browsers and repetitive workflows.</p><em>Scripts + Integrations + Time saved</em></article>
+      </div>
+    </section>
+
+    <section class="dashboard-section">
+      <div class="section-heading">
+        <div><span class="panel-kicker">Mission history</span><h3>Your complete learning path</h3></div>
+        <span class="section-heading__note">Pick any unlocked mission</span>
+      </div>
+      <div class="prog prog--premium">${STEPS.map((s, i) => progressRow(s, i)).join("")}</div>
+    </section>
 
     ${credit()}
   </div>`;
 
   $$("[data-goto]", $("#main")).forEach(b =>
     b.addEventListener("click", () => go({ name: "step", step: +b.dataset.goto })));
+
+  const scrollQuests = $("[data-scroll-quests]", $("#main"));
+  if (scrollQuests) scrollQuests.addEventListener("click", () => $("#skillQuests").scrollIntoView({ behavior: "smooth", block: "start" }));
+
+  $$("[data-snack-option]", $("#main")).forEach(btn => btn.addEventListener("click", () => {
+    const chosen = Number(btn.dataset.snackOption);
+    const feedback = $("#snackFeedback");
+    if (chosen !== snack.answer) {
+      btn.classList.add("is-wrong");
+      feedback.textContent = "Not quite. Read the code from top to bottom and try again.";
+      return;
+    }
+    $$("[data-snack-option]", $("#main")).forEach((option, i) => {
+      option.disabled = true;
+      if (i === snack.answer) option.classList.add("is-right");
+    });
+    try { localStorage.setItem(snackKey(), "done"); } catch {}
+    $("#dailySnack").classList.add("is-complete");
+    $(".daily-snack__status").textContent = "✓ Completed today";
+    feedback.textContent = snack.why + " +25 XP earned.";
+    updateTopbarGame();
+    toast("Daily Code Snack complete — +25 XP!");
+    window.dispatchEvent(new CustomEvent("abhyaslab:celebrate"));
+  }));
 }
 
 function progressRow(s, i) {
@@ -969,28 +1203,33 @@ function progressRow(s, i) {
   const open = isUnlocked(i);
   const glyph = done ? "&#10003;" : (open ? (s.kind === "topic" ? s.no : KIND_LABEL[s.kind][0]) : "&#128274;");
 
-  let score = "", sub = "";
+  let score = "", sub = "", stepPercent = done ? 100 : 0;
   if (s.kind === "topic") {
     const tasks = r ? Object.keys(r.tasks || {}).length : 0;
-    sub = done ? "Complete" : (open ? "Ready to start" : "Locked");
-    if (r && r.mcqTotal) score = `<b>${r.mcqScore}/${r.mcqTotal}</b>quiz`;
-    if (s.data.tasks.length) score += `<span>${tasks}/${s.data.tasks.length} tasks</span>`;
+    const parts = Math.max(1, (s.data.tasks || []).length + 1);
+    stepPercent = done ? 100 : Math.round(((tasks + (r && r.mcqPassed ? 1 : 0)) / parts) * 100);
+    sub = done ? "Mission complete" : (open ? (stepPercent ? "In progress" : "Ready to start") : "Locked");
+    if (r && r.mcqTotal) score = `<b>${r.mcqScore}/${r.mcqTotal}</b><span>quiz</span>`;
+    if (s.data.tasks.length) score += `<b>${tasks}/${s.data.tasks.length}</b><span>tasks</span>`;
   } else if (s.kind === "test") {
-    sub = done ? "Passed" : (open ? "Ready — " + s.summary : "Finish every topic to unlock");
-    if (r && r.best != null) score = `<b>${r.best}/${r.total}</b>attempt ${r.attempts}`;
+    sub = done ? "Test passed" : (open ? "Ready · " + s.summary : "Finish every topic to unlock");
+    if (r && r.best != null) score = `<b>${r.best}/${r.total}</b><span>best score</span>`;
   } else {
-    sub = done ? "Submitted" : (open ? "Ready to submit" : "Pass the unit test to unlock");
-    if (r && r.link) score = `<b>Sent</b>${new Date(r.at).toLocaleDateString()}`;
+    sub = done ? "Project submitted" : (open ? "Ready to submit" : "Pass the unit test to unlock");
+    if (r && r.link) score = `<b>Sent</b><span>${new Date(r.at).toLocaleDateString()}</span>`;
   }
 
   const cls = ["prow", done ? "is-done" : (open ? "is-open" : "")].join(" ");
   return `<button class="${cls}" data-goto="${i}" ${open ? "" : "disabled"}>
     <span class="prow__mark"><span>${glyph}</span></span>
     <span class="prow__main">
+      <span class="prow__meta">${esc(s.unit)} · ${esc(KIND_LABEL[s.kind])}</span>
       <span class="prow__t">${esc(s.title)}</span>
-      <span class="prow__s">${esc(s.unit)} &middot; ${sub}</span>
+      <span class="prow__s">${sub}</span>
+      <span class="prow__bar"><i style="width:${Math.min(100, Math.max(0, stepPercent))}%"></i></span>
     </span>
-    <span class="prow__score">${score}</span>
+    <span class="prow__score">${score || `<b>${stepPercent}%</b><span>progress</span>`}</span>
+    <span class="prow__arrow" aria-hidden="true">→</span>
   </button>`;
 }
 
@@ -1159,6 +1398,7 @@ function paintTasks(s, r) {
         ${hintHtml}
       </header>
       <div class="editor">
+        <div class="editor__top"><span><i></i><i></i><i></i><b>main.py</b></span><em>Tab inserts spaces · Ctrl/⌘ + Enter runs</em></div>
         <div class="editor__gutter" data-gutter></div>
         <textarea class="editor__ta" spellcheck="false" data-code>${esc(task.starter || "")}</textarea>
       </div>
