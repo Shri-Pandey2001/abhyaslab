@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1227">
+  <title>AbhyasLab · Administrator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=1">
+</head>
+<body>
+  <div class="dash-shell">
+    <aside class="dash-sidebar" id="sidebar">
+      <div class="dash-brand">
+        <div class="dash-brand__mark"><span>A</span></div>
+        <div><strong>AbhyasLab</strong><small>Administrator</small></div>
+      </div>
+      <nav class="dash-nav" id="adminNav">
+        <button class="is-active" data-panel="overview">Dashboard</button>
+        <button data-panel="students">Students</button>
+        <button data-panel="staff">Faculty & TA</button>
+        <button data-panel="sections">Sections</button>
+        <button data-panel="assignments">Assignments</button>
+        <button data-panel="analytics">Analytics</button>
+        <button data-panel="security">Security</button>
+        <button data-panel="settings">Settings</button>
+      </nav>
+    </aside>
+
+    <main class="dash-main">
+      <header class="dash-topbar">
+        <button class="dash-button mobile-menu" id="menuButton">Menu</button>
+        <div class="dash-user">
+          <div class="dash-user__avatar" id="userAvatar">A</div>
+          <div><strong id="userName">Administrator</strong><span id="userMeta">A001 · Secure session</span></div>
+        </div>
+        <button class="dash-button dash-button--danger" id="logoutButton">Sign out</button>
+      </header>
+
+      <div class="dash-content">
+        <div class="notice" id="notice"></div>
+
+        <section class="panel is-active" data-panel-view="overview">
+          <div class="dash-hero">
+            <div>
+              <div class="dash-kicker">AbhyasLab control centre</div>
+              <h1>Administrator Dashboard</h1>
+              <p>Manage accounts, sections and platform operations without entering the student learning workflow.</p>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric-card"><span>Platform role</span><strong>Admin</strong><small>Full management access</small></article>
+            <article class="metric-card"><span>Authentication</span><strong>Live</strong><small>Supabase session verified</small></article>
+            <article class="metric-card"><span>Account management</span><strong>Ready</strong><small>Students, faculty and TA</small></article>
+            <article class="metric-card"><span>Sections</span><strong>Ready</strong><small>Create and assign staff</small></article>
+          </div>
+
+          <div class="dashboard-grid">
+            <article class="dash-card">
+              <h2>Quick actions</h2>
+              <p>Open a management area directly.</p>
+              <div class="quick-grid">
+                <button class="quick-action" data-open-panel="students"><strong>Create student</strong><span>Add a student and place them in a section.</span></button>
+                <button class="quick-action" data-open-panel="staff"><strong>Create faculty or TA</strong><span>Add staff with secure PIN access.</span></button>
+                <button class="quick-action" data-open-panel="sections"><strong>Create section</strong><span>Prepare a new class or semester group.</span></button>
+                <button class="quick-action" data-open-panel="sections"><strong>Assign staff</strong><span>Connect faculty or TA to a section.</span></button>
+              </div>
+            </article>
+            <article class="dash-card">
+              <h2>System status</h2>
+              <p>Current connected services.</p>
+              <div class="status-list">
+                <div class="status-row"><span>Authentication</span><strong class="status-ok">Connected</strong></div>
+                <div class="status-row"><span>Database</span><strong class="status-ok">Connected</strong></div>
+                <div class="status-row"><span>Admin function</span><strong class="status-ok">Available</strong></div>
+                <div class="status-row"><span>Learning content</span><strong class="status-ok">Student-only</strong></div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel" data-panel-view="students">
+          <div class="dash-hero"><div><div class="dash-kicker">User management</div><h1>Students</h1><p>Create a student account and assign it to an existing active section.</p></div></div>
+          <article class="dash-card">
+            <h2>Create student</h2>
+            <p>The student PIN must contain exactly four digits.</p>
+            <form class="form-grid" id="createStudentForm">
+              <div class="form-field"><label>Student ID</label><input name="accountId" placeholder="S001" required></div>
+              <div class="form-field"><label>Full name</label><input name="fullName" required></div>
+              <div class="form-field"><label>Section code</label><input name="sectionCode" placeholder="CSE-A-2026" required></div>
+              <div class="form-field"><label>Four-digit PIN</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></div>
+              <div class="form-field form-field--wide"><label>Email (optional)</label><input name="email" type="email"></div>
+              <div class="form-actions"><button class="dash-button dash-button--primary" type="submit">Create student</button></div>
+            </form>
+          </article>
+        </section>
+
+        <section class="panel" data-panel-view="staff">
+          <div class="dash-hero"><div><div class="dash-kicker">Staff management</div><h1>Faculty & Teaching Assistants</h1><p>Create staff accounts that can access the faculty dashboard.</p></div></div>
+          <article class="dash-card">
+            <h2>Create staff account</h2>
+            <form class="form-grid" id="createStaffForm">
+              <div class="form-field"><label>Role</label><select name="role"><option value="faculty">Faculty</option><option value="ta">Teaching Assistant</option></select></div>
+              <div class="form-field"><label>Account ID</label><input name="accountId" placeholder="F101" required></div>
+              <div class="form-field"><label>Full name</label><input name="fullName" required></div>
+              <div class="form-field"><label>Email</label><input name="email" type="email" required></div>
+              <div class="form-field"><label>PIN</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" maxlength="12" required></div>
+              <div class="form-actions"><button class="dash-button dash-button--primary" type="submit">Create staff</button></div>
+            </form>
+          </article>
+        </section>
+
+        <section class="panel" data-panel-view="sections">
+          <div class="dash-hero"><div><div class="dash-kicker">Class management</div><h1>Sections</h1><p>Create sections and assign faculty or teaching assistants.</p></div></div>
+          <div class="dashboard-grid">
+            <article class="dash-card">
+              <h2>Create section</h2>
+              <form class="form-grid" id="createSectionForm">
+                <div class="form-field"><label>Section code</label><input name="sectionCode" placeholder="CSE-A-2026" required></div>
+                <div class="form-field"><label>Section name</label><input name="sectionName" placeholder="CSE Section A" required></div>
+                <div class="form-field"><label>Academic year</label><input name="academicYear" placeholder="2026-2027"></div>
+                <div class="form-field"><label>Term</label><input name="term" placeholder="Semester 1"></div>
+                <div class="form-actions"><button class="dash-button dash-button--primary" type="submit">Create section</button></div>
+              </form>
+            </article>
+            <article class="dash-card">
+              <h2>Assign staff to section</h2>
+              <form class="form-grid" id="assignStaffForm">
+                <div class="form-field form-field--wide"><label>Faculty or TA account ID</label><input name="accountId" placeholder="F101" required></div>
+                <div class="form-field form-field--wide"><label>Section code</label><input name="sectionCode" placeholder="CSE-A-2026" required></div>
+                <div class="form-actions"><button class="dash-button dash-button--primary" type="submit">Assign staff</button></div>
+              </form>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel" data-panel-view="assignments"><div class="dash-hero"><div><div class="dash-kicker">Academic operations</div><h1>Assignments</h1></div></div><div class="empty-state">Assignment management will activate with the AbhyasLab Core Edge Function.</div></section>
+        <section class="panel" data-panel-view="analytics"><div class="dash-hero"><div><div class="dash-kicker">Insights</div><h1>Analytics</h1></div></div><div class="empty-state">Live student and section analytics will appear after progress APIs are deployed.</div></section>
+        <section class="panel" data-panel-view="security"><div class="dash-hero"><div><div class="dash-kicker">Protection</div><h1>Security</h1></div></div><div class="empty-state">Authentication uses secure server-side PIN hashing and revocable application sessions.</div></section>
+        <section class="panel" data-panel-view="settings"><div class="dash-hero"><div><div class="dash-kicker">Platform</div><h1>Settings</h1></div></div><div class="empty-state">Global course and platform settings will be connected in the next backend phase.</div></section>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/supabase-config.js?v=20"></script>
+  <script src="assets/js/api.js?v=21"></script>
+  <script src="assets/js/admin-dashboard.js?v=1"></script>
+</body>
+</html>

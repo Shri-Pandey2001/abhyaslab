@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1227">
+  <title>AbhyasLab · Faculty</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=1">
+</head>
+<body>
+  <div class="dash-shell">
+    <aside class="dash-sidebar" id="sidebar">
+      <div class="dash-brand"><div class="dash-brand__mark"><span>F</span></div><div><strong>AbhyasLab</strong><small>Faculty workspace</small></div></div>
+      <nav class="dash-nav" id="facultyNav">
+        <button class="is-active" data-panel="overview">Dashboard</button>
+        <button data-panel="sections">My Sections</button>
+        <button data-panel="students">Students</button>
+        <button data-panel="reviews">Project Reviews</button>
+        <button data-panel="reports">Reports</button>
+      </nav>
+    </aside>
+    <main class="dash-main">
+      <header class="dash-topbar">
+        <button class="dash-button mobile-menu" id="menuButton">Menu</button>
+        <div class="dash-user"><div class="dash-user__avatar" id="userAvatar">F</div><div><strong id="userName">Faculty</strong><span id="userMeta">Secure session</span></div></div>
+        <button class="dash-button dash-button--danger" id="logoutButton">Sign out</button>
+      </header>
+      <div class="dash-content">
+        <div class="notice" id="notice"></div>
+        <section class="panel is-active" data-panel-view="overview">
+          <div class="dash-hero"><div><div class="dash-kicker">Teaching workspace</div><h1 id="welcomeHeading">Faculty Dashboard</h1><p>Review assigned sections, support students and manage academic approvals without opening the student course workflow.</p></div></div>
+          <div class="metric-grid">
+            <article class="metric-card"><span>Your role</span><strong id="roleMetric">Faculty</strong><small>Verified account</small></article>
+            <article class="metric-card"><span>Assigned sections</span><strong>—</strong><small>Core API pending</small></article>
+            <article class="metric-card"><span>Pending reviews</span><strong>—</strong><small>Core API pending</small></article>
+            <article class="metric-card"><span>Active students</span><strong>—</strong><small>Core API pending</small></article>
+          </div>
+          <div class="dashboard-grid">
+            <article class="dash-card"><h2>Faculty tools</h2><p>Your workspace is separated from the student lessons.</p><div class="quick-grid">
+              <button class="quick-action" data-open-panel="sections"><strong>My sections</strong><span>View your assigned classes.</span></button>
+              <button class="quick-action" data-open-panel="students"><strong>Student progress</strong><span>Review learning activity.</span></button>
+              <button class="quick-action" data-open-panel="reviews"><strong>Project reviews</strong><span>Approve or return submissions.</span></button>
+              <button class="quick-action" data-open-panel="reports"><strong>Reports</strong><span>View section performance.</span></button>
+            </div></article>
+            <article class="dash-card"><h2>Service status</h2><p>Current platform connection.</p><div class="status-list">
+              <div class="status-row"><span>Authentication</span><strong class="status-ok">Connected</strong></div>
+              <div class="status-row"><span>Role routing</span><strong class="status-ok">Active</strong></div>
+              <div class="status-row"><span>Faculty data</span><strong>Awaiting Core API</strong></div>
+            </div></article>
+          </div>
+        </section>
+        <section class="panel" data-panel-view="sections"><div class="dash-hero"><div><div class="dash-kicker">Classes</div><h1>My Sections</h1></div></div><div class="empty-state">Assigned sections will load here after the Core Edge Function is deployed.</div></section>
+        <section class="panel" data-panel-view="students"><div class="dash-hero"><div><div class="dash-kicker">Learners</div><h1>Students</h1></div></div><div class="empty-state">Student progress and activity will load here after the Core Edge Function is deployed.</div></section>
+        <section class="panel" data-panel-view="reviews"><div class="dash-hero"><div><div class="dash-kicker">Approvals</div><h1>Project Reviews</h1></div></div><div class="empty-state">Pending project reviews will appear here when project submission APIs are enabled.</div></section>
+        <section class="panel" data-panel-view="reports"><div class="dash-hero"><div><div class="dash-kicker">Insights</div><h1>Reports</h1></div></div><div class="empty-state">Section reports will appear here after progress tracking is connected.</div></section>
+      </div>
+    </main>
+  </div>
+  <script src="js/supabase-config.js?v=20"></script>
+  <script src="assets/js/api.js?v=21"></script>
+  <script src="assets/js/faculty-dashboard.js?v=1"></script>
+</body>
+</html>
