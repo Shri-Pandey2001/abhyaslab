@@ -5,7 +5,22 @@
       --premium-white:#FFFDF6;
       --premium-shadow:0 28px 90px rgba(0,0,0,.34);
     }
+/* Make role dropdown text visible */
+.auth-card .field select {
+  color: #ffffff;
+  background-color: #0d1732;
+}
 
+.auth-card .field select option {
+  color: #ffffff;
+  background-color: #0d1732;
+}
+
+/* Highlighted option */
+.auth-card .field select option:checked {
+  color: #ffffff;
+  background-color: #2d4d7a;
+}
     body{overflow-x:hidden}
 
     .gate--premium{
