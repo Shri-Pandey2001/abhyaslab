@@ -22,7 +22,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/dashboard.css?v=1">
-  <link rel="stylesheet" href="assets/css/global-experience.css?v=1">
+  <link rel="stylesheet" href="assets/css/global-experience.css?v=2">
 </head>
 <body>
   <div class="dash-shell">
@@ -34,6 +34,7 @@
         <button data-panel="students">Students</button>
         <button data-panel="reviews">Project Reviews</button>
         <button data-panel="reports">Reports</button>
+        <a class="dash-nav__link" id="facultyCourseNav" href="faculty-course.html">Course Content</a>
       </nav>
     </aside>
     <main class="dash-main">
@@ -58,6 +59,7 @@
               <button class="quick-action" data-open-panel="students"><strong>Student progress</strong><span>Review learning activity.</span></button>
               <button class="quick-action" data-open-panel="reviews"><strong>Project reviews</strong><span>Approve or return submissions.</span></button>
               <button class="quick-action" data-open-panel="reports"><strong>Reports</strong><span>View section performance.</span></button>
+              <a class="quick-action quick-action--link" id="facultyCourseQuick" href="faculty-course.html"><strong>All course units</strong><span>Open every lesson, quiz, test and project for faculty review.</span></a>
             </div></article>
             <article class="dash-card"><h2>Service status</h2><p>Current platform connection.</p><div class="status-list">
               <div class="status-row"><span>Authentication</span><strong class="status-ok">Connected</strong></div>
@@ -75,7 +77,7 @@
   </div>
   <script src="js/supabase-config.js?v=20"></script>
   <script src="assets/js/api.js?v=21"></script>
-  <script src="assets/js/faculty-dashboard.js?v=2"></script>
-  <script src="assets/js/global-experience.js?v=1"></script>
+  <script src="assets/js/faculty-dashboard.js?v=3"></script>
+  <script src="assets/js/global-experience.js?v=2"></script>
 </body>
 </html>
