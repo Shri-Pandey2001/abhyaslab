@@ -4,7 +4,7 @@
    ========================================================================== */
 
 const CONFIG = {
-  aiEnabled: false,
+  aiEnabled: true,
 
   institution: "",
   courseName: "Python Programming",
