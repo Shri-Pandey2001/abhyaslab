@@ -8,7 +8,7 @@ window.ABHYASLAB_CONFIG = Object.freeze({
       "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-auth",
 
     admin:
-      "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-admin",
+      "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/hyper-processor",
     
     core:
       "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-core",
