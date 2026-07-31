@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0F1730">
+  <meta name="color-scheme" content="dark">
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem("abhyaslab.global-theme") || "dark-galaxy";
+        document.documentElement.dataset.abhyasTheme = saved;
+        document.documentElement.style.colorScheme =
+          saved === "classic-white" ? "light" : "dark";
+      } catch {
+        document.documentElement.dataset.abhyasTheme = "dark-galaxy";
+        document.documentElement.style.colorScheme = "dark";
+      }
+    })();
+  </script>
+  <meta
+    name="description"
+    content="AbhyasLab is an interactive Python learning portal where students read concepts, solve quizzes, run real Python in the browser, submit projects and ask AI-powered doubts."
+  >
+
+  <title>AbhyasLab · Faculty Course Content</title>
+
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600;700&display=swap"
+    rel="stylesheet"
+  >
+  <link rel="stylesheet" href="assets/css/style.css?v=10">
+  <link rel="stylesheet" href="assets/css/landing.css?v=4">
+  <link rel="stylesheet" href="assets/css/global-experience.css?v=2">
+
+</head>
+
+<body class="faculty-course-page">
+  <section id="gate" class="gate gate--premium" hidden>
+    <div class="gate__stamp" aria-hidden="true"></div>
+
+    <div class="gate__inner gate__inner--premium">
+      <div class="gate__story">
+        <header class="gate__brand gate__brand--premium">
+          <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+            <path d="M20 2 L38 20 L20 38 L2 20 Z" class="mark__d"></path>
+            <path d="M20 9 L31 20 L20 31 L9 20 Z" class="mark__i"></path>
+            <path d="M20 15.5 L24.5 20 L20 24.5 L15.5 20 Z" class="mark__c"></path>
+          </svg>
+          <div>
+            <h1 class="wordmark">AbhyasLab</h1>
+            <p class="tagline">Concept To Code</p>
+            <div class="brand-copy">
+              <span class="brand-copy__dot" aria-hidden="true"></span>
+              <span>Interactive Python learning portal</span>
+            </div>
+          </div>
+        </header>
+
+        <div class="eyebrow-pill">Built for curious Python learners</div>
+        <h2 class="gate__headline">Learn Python by <span>building.</span></h2>
+
+        <p class="gate__lede gate__lede--premium">
+          Read friendly concepts, test your understanding, run real Python,
+          complete projects and get guided doubt support—all inside one focused
+          learning space.
+        </p>
+
+        <div class="benefit-row" aria-label="Platform benefits">
+          <span class="benefit-chip">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5 3 12l5 7M16 5l5 7-5 7M14 3l-4 18"></path></svg>
+            Real Python in the browser
+          </span>
+          <span class="benefit-chip">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"></path></svg>
+            Guided concepts and practice
+          </span>
+          <span class="benefit-chip">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4 12.7V20l4-2 4 2v-4.3A7 7 0 0 0 12 3Z"></path></svg>
+            AI-powered doubt support
+          </span>
+        </div>
+
+        <div class="shell shell--premium" role="img" aria-label="A Python shell printing the AbhyasLab learning promise">
+          <div class="shell__bar"><span></span><span></span><span></span><em>Python 3 · ready in your browser</em></div>
+          <pre class="shell__body"><code id="shellText"></code><span class="caret" id="caret"></span></pre>
+        </div>
+
+        <div class="learning-proof" aria-label="How AbhyasLab helps students">
+          <article class="proof-card"><span class="proof-card__icon">01</span><strong>Understand</strong><span>Beginner-friendly explanations with visual examples.</span></article>
+          <article class="proof-card"><span class="proof-card__icon">02</span><strong>Practise</strong><span>Quizzes and coding tasks unlock step by step.</span></article>
+          <article class="proof-card"><span class="proof-card__icon">03</span><strong>Build</strong><span>Complete tests and projects that prove your learning.</span></article>
+        </div>
+      </div>
+
+      <div class="gate__auth">
+        <div class="auth-card">
+          <div class="auth-card__head">
+            <div>
+              <h2>Welcome to your lab</h2>
+              <p>Sign in to continue your Python learning journey.</p>
+            </div>
+            <span class="secure-badge">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+              Secure access
+            </span>
+          </div>
+
+          <form class="reg authbox" id="regForm" autocomplete="on">
+            <div class="authmode" role="tablist" aria-label="Account access">
+              <button type="button" class="authmode__btn is-active" data-auth-mode="login">Secure sign in</button>
+              <button type="button" class="authmode__btn" data-auth-mode="register">First-time student</button>
+            </div>
+
+            <div class="reg__row">
+              <label class="field">
+                <span>Account type</span>
+                <select id="regRole" name="role" required>
+                  <option value="student">Student</option>
+                  <option value="faculty">Faculty</option>
+                  <option value="ta">Teaching Assistant</option>
+                  <option value="admin">Administrator</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Account ID</span>
+                <input id="regId" name="accountId" required placeholder="Example: S001" maxlength="30" autocomplete="username" spellcheck="false">
+              </label>
+            </div>
+
+            <div id="registerFields" hidden>
+              <div class="reg__row">
+                <label class="field">
+                  <span>Full name</span>
+                  <input id="regName" name="fullName" placeholder="Name as per records" maxlength="60" autocomplete="name">
+                </label>
+                <label class="field">
+                  <span>Email address</span>
+                  <input id="regEmail" name="email" type="email" placeholder="name@example.com" maxlength="120" autocomplete="email">
+                </label>
+              </div>
+              <label class="field">
+                <span>Section</span>
+                <select id="regSection" name="section"><option value="">Loading sections…</option></select>
+              </label>
+            </div>
+
+            <div class="reg__row">
+              <label class="field">
+                <span>Account PIN</span>
+                <input id="regPin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" maxlength="12" autocomplete="current-password" required placeholder="4–12 digit PIN">
+              </label>
+              <label class="field" id="confirmPinField" hidden>
+                <span>Confirm PIN</span>
+                <input id="regPin2" name="pinConfirm" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="••••" autocomplete="new-password">
+              </label>
+            </div>
+
+            <button class="btn btn--go" type="submit" id="authSubmit">Sign in to AbhyasLab</button>
+            <p class="reg__note reg__note--premium" id="regNote">Accounts are created by the administrator. Your secure session remains active for up to 24 hours.</p>
+          </form>
+
+          <p class="auth-card__trust">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>
+            No installation required. Your progress stays connected to your account.
+          </p>
+        </div>
+      </div>
+
+      <footer class="gate__footer">
+        <div class="credit">
+          <span>Created by <strong>Shridhar Pandey</strong></span>
+          <a href="https://github.com/shridhar-pandey" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://www.instagram.com/shridhar_siddheshwar_pandey?igsh=N3pxYzNjYWl3OWlw" target="_blank" rel="noopener">Instagram</a>
+        </div>
+        <span class="gate__footer-note">Learn at your pace. Build with confidence.</span>
+      </footer>
+    </div>
+  </section>
+
+  <div id="app" class="app" hidden>
+    <header class="topbar topbar--premium">
+      <button class="topbar__menu" id="menuBtn" aria-label="Show topics" aria-expanded="false"><span></span><span></span><span></span></button>
+      <a class="topbar__brand" href="#" id="homeLink" aria-label="AbhyasLab home">
+        <svg class="mark mark--sm" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M20 2 L38 20 L20 38 L2 20 Z" class="mark__d"></path>
+          <path d="M20 9 L31 20 L20 31 L9 20 Z" class="mark__i"></path>
+          <path d="M20 15.5 L24.5 20 L20 24.5 L15.5 20 Z" class="mark__c"></path>
+        </svg>
+        <span class="topbar__name">AbhyasLab<em>Concept To Code</em></span>
+      </a>
+
+      <div class="topbar__right">
+        <span class="topbar__status" aria-label="Secure session active"><i aria-hidden="true"></i>Secure session</span>
+        <span id="whoTag" class="whotag" hidden>Faculty</span>
+        <div class="who"><strong id="whoName">—</strong><span id="whoId">—</span></div>
+        <button class="topbar__logout" id="logoutBtn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="rail" id="rail" aria-label="Course topics">
+        <div class="rail__unit">
+          <p class="rail__eyebrow">Unit 1</p>
+          <h2 class="rail__title" id="railUnitTitle">Foundations of Python</h2>
+          <div class="rail__meter" aria-hidden="true"><i id="railMeterFill"></i></div>
+          <p class="rail__count" id="railCount">0 of 3 complete</p>
+        </div>
+        <ol class="rail__list" id="railList"></ol>
+        <div class="rail__foot"><p>Topics open one after another. Clear the quiz and coding tasks to unlock the next learning step.</p></div>
+      </nav>
+
+      <div class="rail__scrim" id="railScrim" hidden></div>
+      <main class="main" id="main" tabindex="-1"></main>
+    </div>
+
+    <button class="ask" id="askBtn" aria-controls="askPanel" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"></path></svg>
+      <span>Ask a doubt</span>
+    </button>
+
+    <aside class="askpanel" id="askPanel" hidden aria-label="Ask a doubt">
+      <header class="askpanel__head">
+        <div><strong>Ask a doubt</strong><span id="askContext">Unit 1</span></div>
+        <button class="askpanel__close" id="askClose" type="button" aria-label="Close doubt panel">&times;</button>
+      </header>
+      <div class="askpanel__log" id="askLog" aria-live="polite"></div>
+      <form class="askpanel__form" id="askForm">
+        <textarea id="askInput" rows="1" placeholder="For example: What does NameError mean?" maxlength="1000"></textarea>
+        <button class="btn btn--go btn--sm" type="submit" id="askSend">Send</button>
+      </form>
+      <p class="askpanel__note">Answers explain the idea and guide your thinking without handing over completed task code.</p>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="js/supabase-config.js?v=20"></script>
+  <script src="assets/js/config.js?v=22"></script>
+  <script src="assets/js/unit1.js?v=8"></script>
+  <script src="assets/js/unit2.js?v=9"></script>
+  <script src="assets/js/content.js?v=8"></script>
+  <script src="assets/js/api.js?v=22"></script>
+  <script src="assets/js/app.js?v=10"></script>
+  <script src="assets/js/faculty-course-access.js?v=1"></script>
+  <script src="assets/js/supabase-ui.js?v=3"></script>
+  <script src="assets/js/student-dashboard-clean.js?v=3"></script>
+  <script src="assets/js/global-experience.js?v=2"></script>
+</body>
+</html>
