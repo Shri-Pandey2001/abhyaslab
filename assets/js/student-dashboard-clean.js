@@ -1,5 +1,5 @@
 /* ==========================================================================
-   AbhyasLab — clean student dashboard
+   AbhyasLab — clean student dashboard v3
    Replaces only the newer gamification dashboard after it renders.
    Topic, quiz, test, project, registration and course logic remain untouched.
    ========================================================================== */
@@ -216,7 +216,7 @@
                 different. The tutor guides your thinking without completing
                 graded work for you.
               </p>
-              <button class="btn btn--quiet" type="button" data-open-ai>Open AI tutor</button>
+              <button class="btn btn--quiet" type="button" data-open-ai>Ask AI tutor</button>
             </div>
           </article>
         </section>
