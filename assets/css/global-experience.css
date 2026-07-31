@@ -1,0 +1,619 @@
+/* ==========================================================================
+   AbhyasLab — global themes and AI controls
+   Applies to login, student, faculty, TA and Administrator pages.
+   ========================================================================== */
+
+html[data-abhyas-theme="dark-galaxy"] {
+  --global-bg:#0c142d;
+  --global-bg-soft:#111d3b;
+  --global-panel:#172447;
+  --global-panel-2:#1d2d57;
+  --global-border:rgba(160,180,235,.18);
+  --global-text:#f7f4eb;
+  --global-muted:#aab5d2;
+  --global-accent:#f4a43a;
+  --global-accent-2:#35c4b3;
+  --global-danger:#ff7078;
+  --global-paper:#fffdf6;
+  --global-paper-text:#172033;
+}
+
+html[data-abhyas-theme="ocean-blue"] {
+  --global-bg:#071b2c;
+  --global-bg-soft:#0b2941;
+  --global-panel:#103654;
+  --global-panel-2:#154663;
+  --global-border:rgba(137,219,244,.22);
+  --global-text:#e7f8ff;
+  --global-muted:#a5c8d8;
+  --global-accent:#1bb9df;
+  --global-accent-2:#62d6cf;
+  --global-danger:#ff7b89;
+  --global-paper:#f5fcff;
+  --global-paper-text:#122d3b;
+}
+
+html[data-abhyas-theme="forest-green"] {
+  --global-bg:#09251d;
+  --global-bg-soft:#0f3328;
+  --global-panel:#174535;
+  --global-panel-2:#1e5742;
+  --global-border:rgba(151,231,190,.20);
+  --global-text:#effff7;
+  --global-muted:#acd1bd;
+  --global-accent:#52d58c;
+  --global-accent-2:#f3bc52;
+  --global-danger:#ff7e7e;
+  --global-paper:#f7fff9;
+  --global-paper-text:#163527;
+}
+
+html[data-abhyas-theme="sunset-warm"] {
+  --global-bg:#28150f;
+  --global-bg-soft:#382018;
+  --global-panel:#553023;
+  --global-panel-2:#673a29;
+  --global-border:rgba(255,205,151,.20);
+  --global-text:#fff2d1;
+  --global-muted:#d9bca6;
+  --global-accent:#ffad33;
+  --global-accent-2:#ff6f75;
+  --global-danger:#ff7d86;
+  --global-paper:#fff9ed;
+  --global-paper-text:#3b251c;
+}
+
+html[data-abhyas-theme="classic-white"] {
+  --global-bg:#eef3f9;
+  --global-bg-soft:#e4ebf4;
+  --global-panel:#ffffff;
+  --global-panel-2:#f7f9fd;
+  --global-border:rgba(30,54,93,.14);
+  --global-text:#172033;
+  --global-muted:#62708d;
+  --global-accent:#2457d6;
+  --global-accent-2:#0f9e99;
+  --global-danger:#c83d52;
+  --global-paper:#ffffff;
+  --global-paper-text:#172033;
+}
+
+/* ------------------------------ login page ------------------------------- */
+
+html[data-abhyas-theme] body,
+html[data-abhyas-theme] .gate--premium {
+  color:var(--global-text);
+  background:
+    radial-gradient(circle at 12% 18%,color-mix(in srgb,var(--global-accent-2) 13%,transparent),transparent 25rem),
+    radial-gradient(circle at 88% 12%,color-mix(in srgb,var(--global-accent) 12%,transparent),transparent 27rem),
+    linear-gradient(135deg,var(--global-bg),var(--global-bg-soft));
+}
+
+html[data-abhyas-theme] .gate__headline,
+html[data-abhyas-theme] .wordmark,
+html[data-abhyas-theme] .auth-card__head h2,
+html[data-abhyas-theme] .proof-card strong {
+  color:var(--global-text);
+}
+
+html[data-abhyas-theme] .gate__lede,
+html[data-abhyas-theme] .auth-card__head p,
+html[data-abhyas-theme] .reg__note--premium,
+html[data-abhyas-theme] .auth-card__trust,
+html[data-abhyas-theme] .proof-card span,
+html[data-abhyas-theme] .gate__footer {
+  color:var(--global-muted);
+}
+
+html[data-abhyas-theme] .auth-card {
+  border-color:var(--global-border);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb,var(--global-panel) 95%,transparent),
+      color-mix(in srgb,var(--global-panel-2) 92%,transparent));
+}
+
+html[data-abhyas-theme] .auth-card::before {
+  background:linear-gradient(90deg,var(--global-accent),var(--global-accent-2));
+}
+
+html[data-abhyas-theme] .benefit-chip,
+html[data-abhyas-theme] .proof-card,
+html[data-abhyas-theme] .shell--premium {
+  border-color:var(--global-border);
+  background:color-mix(in srgb,var(--global-panel) 88%,transparent);
+  color:var(--global-text);
+}
+
+html[data-abhyas-theme] .auth-card .field input,
+html[data-abhyas-theme] .auth-card .field select {
+  border-color:var(--global-border);
+  background:var(--global-bg);
+  color:var(--global-text);
+}
+
+html[data-abhyas-theme] .auth-card .field select option {
+  background:var(--global-panel);
+  color:var(--global-text);
+}
+
+html[data-abhyas-theme] .btn--go {
+  background:var(--global-accent);
+  color:
+    color-mix(in srgb,var(--global-bg) 88%,#000 12%);
+}
+
+html[data-abhyas-theme="classic-white"] .btn--go {
+  color:#fff;
+}
+
+html[data-abhyas-theme] .secure-badge {
+  border-color:color-mix(in srgb,var(--global-accent-2) 40%,transparent);
+  background:color-mix(in srgb,var(--global-accent-2) 10%,transparent);
+  color:var(--global-accent-2);
+}
+
+/* --------------------------- student application ------------------------- */
+
+html[data-abhyas-theme] .app {
+  --indigo-900:var(--global-bg);
+  --indigo-800:var(--global-panel);
+  --indigo-700:var(--global-panel-2);
+  --indigo-line:var(--global-border);
+  --chalk:var(--global-text);
+  --chalk-dim:var(--global-muted);
+  --marigold:var(--global-accent);
+  --peacock:var(--global-accent-2);
+  --madder:var(--global-danger);
+  background:
+    radial-gradient(circle at 85% 0%,color-mix(in srgb,var(--global-accent-2) 10%,transparent),transparent 31rem),
+    var(--global-bg);
+  color:var(--global-text);
+}
+
+html[data-abhyas-theme] .topbar,
+html[data-abhyas-theme] .rail {
+  border-color:var(--global-border);
+  background:color-mix(in srgb,var(--global-panel) 95%,transparent);
+}
+
+html[data-abhyas-theme] .paper {
+  background:var(--global-paper);
+  color:var(--global-paper-text);
+}
+
+/* ---------------------- Administrator / faculty pages -------------------- */
+
+html[data-abhyas-theme] {
+  --dash-bg:var(--global-bg);
+  --dash-panel:var(--global-panel);
+  --dash-panel-2:var(--global-panel-2);
+  --dash-border:var(--global-border);
+  --dash-text:var(--global-text);
+  --dash-muted:var(--global-muted);
+  --dash-orange:var(--global-accent);
+  --dash-teal:var(--global-accent-2);
+  --dash-danger:var(--global-danger);
+}
+
+html[data-abhyas-theme] body:has(.dash-shell) {
+  color:var(--global-text);
+  background:
+    radial-gradient(circle at 82% 0%,color-mix(in srgb,var(--global-accent-2) 10%,transparent),transparent 31rem),
+    radial-gradient(circle at 0% 100%,color-mix(in srgb,var(--global-accent) 9%,transparent),transparent 34rem),
+    var(--global-bg);
+}
+
+html[data-abhyas-theme] .dash-sidebar,
+html[data-abhyas-theme] .dash-topbar,
+html[data-abhyas-theme] .metric-card,
+html[data-abhyas-theme] .dash-card {
+  border-color:var(--global-border);
+  background:color-mix(in srgb,var(--global-panel) 96%,transparent);
+  color:var(--global-text);
+}
+
+html[data-abhyas-theme] .quick-action,
+html[data-abhyas-theme] .form-field input,
+html[data-abhyas-theme] .form-field select {
+  border-color:var(--global-border);
+  background:var(--global-bg-soft);
+  color:var(--global-text);
+}
+
+html[data-abhyas-theme] .form-field select option {
+  background:var(--global-panel);
+  color:var(--global-text);
+}
+
+/* --------------------------- global top controls ------------------------- */
+
+.global-toolbar {
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  z-index:95;
+}
+
+.global-toolbar--login {
+  position:fixed;
+  top:1rem;
+  right:1rem;
+}
+
+.global-toolbar--embedded,
+.global-toolbar--dashboard {
+  flex:none;
+}
+
+.global-tool-button {
+  min-height:38px;
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
+  padding:.48rem .7rem;
+  border:1px solid var(--global-border);
+  border-radius:11px;
+  background:color-mix(in srgb,var(--global-panel) 94%,transparent);
+  color:var(--global-text);
+  cursor:pointer;
+  font:700 .75rem/1 "Bricolage Grotesque",system-ui,sans-serif;
+  box-shadow:0 10px 26px rgba(0,0,0,.12);
+}
+
+.global-tool-button:hover {
+  border-color:var(--global-accent);
+  transform:translateY(-1px);
+}
+
+.global-tool-button > span:first-child {
+  width:24px;
+  height:24px;
+  display:grid;
+  place-items:center;
+  border-radius:8px;
+  background:linear-gradient(135deg,var(--global-accent),var(--global-accent-2));
+  color:#0d1720;
+  font-size:.68rem;
+  font-weight:900;
+}
+
+.global-tool-button--ai > span:first-child {
+  border-radius:50%;
+}
+
+/* ------------------------------ theme modal ------------------------------ */
+
+.global-theme-dialog[hidden],
+.global-ai-panel[hidden] {
+  display:none !important;
+}
+
+.global-theme-dialog {
+  position:fixed;
+  inset:0;
+  z-index:130;
+  display:grid;
+  place-items:center;
+  padding:1rem;
+}
+
+.global-modal-backdrop {
+  position:absolute;
+  inset:0;
+  background:rgba(2,7,20,.70);
+  backdrop-filter:blur(8px);
+}
+
+.global-theme-panel {
+  position:relative;
+  width:min(570px,100%);
+  max-height:min(760px,calc(100vh - 2rem));
+  overflow:auto;
+  padding:1.1rem;
+  border:1px solid var(--global-border);
+  border-radius:22px;
+  background:var(--global-panel);
+  color:var(--global-text);
+  box-shadow:0 40px 110px rgba(0,0,0,.48);
+}
+
+.global-modal-head {
+  display:flex;
+  justify-content:space-between;
+  gap:1rem;
+  padding:.3rem .3rem 1rem;
+  border-bottom:1px solid var(--global-border);
+}
+
+.global-modal-head span {
+  color:var(--global-accent);
+  font-size:.66rem;
+  font-weight:800;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+
+.global-modal-head h2 {
+  margin:.25rem 0;
+  font-size:1.5rem;
+}
+
+.global-modal-head p {
+  margin:0;
+  color:var(--global-muted);
+  font-size:.82rem;
+}
+
+.global-modal-head button {
+  width:39px;
+  height:39px;
+  flex:none;
+  border:1px solid var(--global-border);
+  border-radius:11px;
+  background:transparent;
+  color:inherit;
+  cursor:pointer;
+  font-size:1.4rem;
+}
+
+.global-theme-options {
+  display:grid;
+  gap:.7rem;
+  margin-top:1rem;
+}
+
+.global-theme-option {
+  width:100%;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:.9rem;
+  padding:.9rem;
+  border:1px solid var(--global-border);
+  border-radius:15px;
+  background:var(--global-bg-soft);
+  color:var(--global-text);
+  text-align:left;
+  cursor:pointer;
+}
+
+.global-theme-option:hover,
+.global-theme-option.is-selected {
+  border-color:var(--global-accent);
+}
+
+.global-theme-option.is-selected {
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--global-accent) 12%,transparent);
+}
+
+.global-theme-swatches {
+  display:flex;
+  gap:.25rem;
+}
+
+.global-theme-swatches i {
+  width:18px;
+  height:18px;
+  border:1px solid rgba(255,255,255,.48);
+  border-radius:50%;
+  background:var(--swatch);
+}
+
+.global-theme-option strong,
+.global-theme-option small {
+  display:block;
+}
+
+.global-theme-option small {
+  margin-top:.2rem;
+  color:var(--global-muted);
+}
+
+.global-theme-option b {
+  color:var(--global-accent);
+  opacity:0;
+}
+
+.global-theme-option.is-selected b {
+  opacity:1;
+}
+
+/* ---------------------------- global AI panel ---------------------------- */
+
+.global-ai-panel {
+  position:fixed;
+  right:1rem;
+  bottom:1rem;
+  z-index:125;
+  width:min(430px,calc(100vw - 2rem));
+  max-height:min(720px,calc(100vh - 2rem));
+  display:grid;
+  grid-template-rows:auto minmax(170px,1fr) auto auto;
+  overflow:hidden;
+  border:1px solid var(--global-border);
+  border-radius:20px;
+  background:var(--global-panel);
+  color:var(--global-text);
+  box-shadow:0 32px 95px rgba(0,0,0,.48);
+}
+
+.global-ai-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  padding:1rem;
+  border-bottom:1px solid var(--global-border);
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb,var(--global-accent-2) 14%,var(--global-panel)),
+      var(--global-panel));
+}
+
+.global-ai-head strong,
+.global-ai-head span {
+  display:block;
+}
+
+.global-ai-head span {
+  margin-top:.18rem;
+  color:var(--global-muted);
+  font-size:.74rem;
+}
+
+.global-ai-head button {
+  width:36px;
+  height:36px;
+  border:1px solid var(--global-border);
+  border-radius:10px;
+  background:transparent;
+  color:inherit;
+  cursor:pointer;
+  font-size:1.3rem;
+}
+
+.global-ai-log {
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:.75rem;
+  padding:1rem;
+  background:color-mix(in srgb,var(--global-bg) 55%,var(--global-panel) 45%);
+}
+
+.global-ai-bubble {
+  max-width:88%;
+  padding:.8rem .9rem;
+  border-radius:15px;
+  white-space:pre-wrap;
+  line-height:1.5;
+  font-size:.9rem;
+}
+
+.global-ai-bubble--assistant {
+  align-self:flex-start;
+  border:1px solid var(--global-border);
+  border-bottom-left-radius:5px;
+  background:var(--global-panel-2);
+}
+
+.global-ai-bubble--user {
+  align-self:flex-end;
+  border-bottom-right-radius:5px;
+  background:var(--global-accent);
+  color:#111923;
+}
+
+.global-ai-bubble.is-waiting {
+  color:var(--global-muted);
+}
+
+.global-ai-form {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:.65rem;
+  padding:.8rem;
+  border-top:1px solid var(--global-border);
+  background:var(--global-panel);
+}
+
+.global-ai-form textarea {
+  min-height:48px;
+  max-height:130px;
+  resize:vertical;
+  padding:.75rem;
+  border:1px solid var(--global-border);
+  border-radius:12px;
+  outline:none;
+  background:var(--global-bg);
+  color:var(--global-text);
+  font:inherit;
+}
+
+.global-ai-form textarea:focus {
+  border-color:var(--global-accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--global-accent) 12%,transparent);
+}
+
+.global-ai-form button {
+  align-self:end;
+  min-height:48px;
+  padding:0 1rem;
+  border:0;
+  border-radius:12px;
+  background:var(--global-accent);
+  color:#111923;
+  cursor:pointer;
+  font-weight:800;
+}
+
+.global-ai-note {
+  margin:0;
+  padding:.6rem .9rem .85rem;
+  color:var(--global-muted);
+  font-size:.72rem;
+}
+
+/* Classic White needs explicit readable form/button colors. */
+html[data-abhyas-theme="classic-white"] .global-tool-button,
+html[data-abhyas-theme="classic-white"] .global-theme-option,
+html[data-abhyas-theme="classic-white"] .global-theme-panel,
+html[data-abhyas-theme="classic-white"] .global-ai-panel {
+  color:var(--global-text);
+}
+
+@media(max-width:900px) {
+  .global-toolbar--login {
+    top:.65rem;
+    right:.65rem;
+  }
+
+  .global-toolbar--dashboard .global-tool-button > span:last-child,
+  .global-toolbar--embedded .global-tool-button > span:last-child {
+    display:none;
+  }
+
+  .global-toolbar--dashboard .global-tool-button,
+  .global-toolbar--embedded .global-tool-button {
+    width:38px;
+    padding:0;
+    justify-content:center;
+  }
+}
+
+@media(max-width:620px) {
+  .global-toolbar--login {
+    position:absolute;
+  }
+
+  .global-tool-button > span:last-child {
+    display:none;
+  }
+
+  .global-tool-button {
+    width:40px;
+    padding:0;
+    justify-content:center;
+  }
+
+  .global-theme-panel {
+    padding:.8rem;
+    border-radius:18px;
+  }
+
+  .global-theme-option {
+    grid-template-columns:1fr auto;
+  }
+
+  .global-theme-swatches {
+    grid-column:1/-1;
+  }
+
+  .global-ai-panel {
+    right:.5rem;
+    bottom:.5rem;
+    width:calc(100vw - 1rem);
+    max-height:calc(100vh - 1rem);
+  }
+}
