@@ -54,6 +54,18 @@
       : DEFAULT_THEME;
   }
 
+  function getApiClient() {
+    /*
+     * api.js declares `const API` as a global lexical binding. Such bindings
+     * are available by identifier but are not properties of window.
+     */
+    if (typeof API !== "undefined" && API) {
+      return API;
+    }
+
+    return window.API || window.ABHYASLAB_API || null;
+  }
+
   function savedAccount() {
     try {
       return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
@@ -370,8 +382,12 @@
       aiLog.scrollTop = aiLog.scrollHeight;
 
       try {
-        if (!window.API || typeof window.API.ask !== "function") {
-          throw new Error("The AI client is not loaded.");
+        const apiClient = getApiClient();
+
+        if (!apiClient || typeof apiClient.ask !== "function") {
+          throw new Error(
+            "The AbhyasLab AI client did not load. Refresh the page once."
+          );
         }
 
         const history = Array.from(
@@ -385,7 +401,7 @@
             text: bubble.textContent || ""
           }));
 
-        const result = await window.API.ask(
+        const result = await apiClient.ask(
           account,
           question,
           pageContext(),
