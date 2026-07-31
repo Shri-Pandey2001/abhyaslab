@@ -14,6 +14,6 @@ window.ABHYASLAB_CONFIG = Object.freeze({
       "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-core",
 
     ai:
-      "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/abhyaslab-ai"
+      "https://bchjqdcmnwsedczfpyuo.supabase.co/functions/v1/dynamic-responder"
   })
 });
