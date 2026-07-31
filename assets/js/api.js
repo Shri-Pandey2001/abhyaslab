@@ -261,19 +261,44 @@ const API = (() => {
     },
 
     async listSections() {
-      const result = await request(functions().core, {
+      const result = await request(functions().auth, {
         action: "list-sections"
       });
 
       return legacyResult(result, "Sections are currently unavailable.");
     },
 
-    registerStudent() {
-      return Promise.resolve({
-        ok: false,
-        error:
-          "Student accounts are created by the administrator. Contact your faculty."
+    async registerStudent(values = {}) {
+      const result = await request(functions().auth, {
+        action: "register-student",
+        accountId: String(values.id || values.accountId || "").trim(),
+        fullName: String(values.name || values.fullName || "").trim(),
+        email: String(values.email || "").trim(),
+        section: String(values.section || values.sectionCode || "").trim(),
+        pin: String(values.pin || "").trim()
       });
+
+      if (!result.success) {
+        return {
+          ...result,
+          ok: false,
+          error: messageOf(
+            result.message,
+            "The student account could not be created."
+          )
+        };
+      }
+
+      const session = result.session || {};
+
+      return {
+        ...result,
+        ok: true,
+        token: session.token || "",
+        expiresAt: session.expiresAt || session.expires_at || "",
+        account: normaliseUser(result.user),
+        state: normaliseState(result.state)
+      };
     },
 
     syncCourse(account, schema) {
